@@ -1,0 +1,2119 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Retro Fighter (Single Player)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      body {
+        font-family: "Press Start 2P", cursive;
+        background-color: #1a1a1a;
+        color: #fff;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        margin: 0;
+        overflow: hidden;
+        padding: 10px;
+      }
+      #gameContainer,
+      #uiContainer {
+        border: 4px solid #555;
+        background-color: #0f0f0f;
+        position: relative;
+        box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+        text-align: center;
+        padding: 20px;
+        border-radius: 8px;
+      }
+      #gameContainer {
+        padding: 0;
+      }
+      canvas {
+        display: block;
+        image-rendering: -moz-crisp-edges;
+        image-rendering: -webkit-crisp-edges;
+        image-rendering: pixelated;
+        image-rendering: crisp-edges;
+        background-color: #282840;
+        width: 100%;
+        height: 100%;
+      }
+      .game-button,
+      .fighter-button {
+        font-family: "Press Start 2P", cursive;
+        background-color: #ff4500;
+        color: white;
+        border: 2px solid #fff;
+        padding: 12px 24px;
+        text-transform: uppercase;
+        cursor: pointer;
+        transition: background-color 0.2s, transform 0.1s;
+        box-shadow: 4px 4px 0px #c03400;
+        margin: 10px;
+        border-radius: 4px;
+      }
+      .fighter-button.red {
+        background-color: #d9534f;
+        box-shadow: 4px 4px 0px #b0403c;
+      }
+      .fighter-button.red:hover {
+        background-color: #c9302c;
+      }
+      .fighter-button.blue {
+        background-color: #5bc0de;
+        box-shadow: 4px 4px 0px #46b8da;
+      }
+      .fighter-button.blue:hover {
+        background-color: #31b0d5;
+      }
+
+      .game-button:hover,
+      .fighter-button:hover {
+        transform: translateY(-2px);
+      }
+      .game-button:active,
+      .fighter-button:active {
+        box-shadow: 1px 1px 0px #aa3000;
+        transform: translate(3px, 3px);
+      }
+      .game-overlay {
+        /* Used for Game Over screen */
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.8);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        z-index: 10;
+        padding: 20px;
+        box-sizing: border-box;
+      }
+      .game-overlay h2,
+      #uiContainer h2 {
+        font-size: 1.8em;
+        margin-bottom: 20px;
+        color: #ffdd00;
+      }
+      #uiContainer p {
+        margin-bottom: 15px;
+        line-height: 1.6;
+      }
+
+      .health-bar-container {
+        width: 100%;
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        padding: 15px 25px;
+        box-sizing: border-box;
+        position: absolute;
+        top: 0;
+        left: 0;
+        z-index: 5;
+      }
+      #player1HealthContainer,
+      #player2HealthContainer {
+        width: 100%;
+        max-width: 50px;
+        min-width: 50x;
+      }
+      .health-bar {
+        height: 30px;
+        border: 3px solid #fff;
+        background-color: #555;
+        width: 100%;
+        max-width: 50px;
+        min-width: 50x;
+      }
+      .health-bar-inner {
+        height: 100%;
+        background-color: #00ff00;
+        width: 100%;
+        transition: width 0.2s ease-out;
+      }
+      .health-bar-label {
+        font-size: 18px;
+        font-weight: bold;
+        color: #fff;
+        margin-bottom: 5px;
+        text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.7);
+      }
+      #player1HealthContainer .health-bar-inner {
+        background-color: #ff3333;
+      } /* Dowand's bar is Red */
+      #player2HealthContainer .health-bar-inner {
+        background-color: #3333ff;
+      } /* Ewon's bar is Blue */
+
+      .controls-info {
+        margin-top: 20px;
+        background-color: #222;
+        padding: 15px;
+        border: 2px solid #444;
+        border-radius: 8px;
+        text-align: center;
+        font-size: 0.75em;
+        line-height: 1.7;
+        max-width: 90%;
+        width: 600px;
+      }
+      .controls-info h3 {
+        font-size: 1.2em;
+        color: #ffdd00;
+        margin-bottom: 10px;
+        text-align: center;
+      }
+      .controls-info strong {
+        color: #ff8c00;
+      }
+
+      .touch-controls {
+        display: none;
+      }
+      @media (max-width: 768px) {
+        .controls-info {
+          font-size: 0.6em;
+          width: 95%;
+          line-height: 1.5;
+        }
+        .health-bar-label {
+          font-size: 0.6em;
+        }
+        .health-bar {
+          height: 25px;
+          max-width: 180px;
+        }
+        .game-button,
+        .fighter-button {
+          padding: 10px 18px;
+          font-size: 0.9em;
+        }
+        .game-overlay h2,
+        #uiContainer h2 {
+          font-size: 1.5em;
+        }
+        .touch-controls {
+          display: flex;
+          position: fixed;
+          bottom: 3px;
+          left: 0;
+          width: 100%;
+          padding: 3px;
+          box-sizing: border-box;
+          justify-content: center;
+          z-index: 100;
+        }
+        .touch-controls-group {
+          display: flex;
+          flex-wrap: nowrap;
+          gap: 2px;
+          justify-content: center;
+        }
+        .touch-actions,
+        .touch-movement {
+          display: flex;
+          gap: 2px;
+        }
+        .touch-button {
+          font-family: "Press Start 2P", cursive;
+          background-color: rgba(255, 69, 0, 0.7);
+          color: white;
+          border: 1px solid rgba(255, 255, 255, 0.8);
+          padding: 8px;
+          min-width: 35px;
+          text-align: center;
+          cursor: pointer;
+          border-radius: 5px;
+          user-select: none;
+          box-shadow: 1px 1px 0px rgba(170, 50, 0, 0.7);
+          font-size: 0.6em;
+        }
+        .touch-button:active {
+          background-color: rgba(224, 62, 0, 0.9);
+          box-shadow: 0px 0px 0px rgba(170, 50, 0, 0.7);
+          transform: translate(1px, 1px);
+        }
+      }
+      @media (max-width: 480px) {
+        .touch-button {
+          padding: 6px;
+          min-width: 30px;
+          font-size: 0.5em;
+        }
+        .controls-info {
+          font-size: 0.55em;
+        }
+      }
+      .hidden {
+        display: none !important;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="uiContainer">
+      <!-- Экран 1: Выбор персонажа -->
+      <div id="characterSelectionScreen">
+        <h2>Choose Your Fighter!</h2>
+        <p style="font-size: 0.8em; color: #ccc; margin-bottom: 20px">
+          Select your character to play with
+        </p>
+
+        <div
+          style="
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            flex-wrap: wrap;
+          "
+        >
+          <div
+            style="
+              text-align: center;
+              padding: 15px;
+              border: 2px solid #d9534f;
+              border-radius: 8px;
+              background: rgba(217, 83, 79, 0.1);
+            "
+          >
+            <div
+              style="
+                width: 80px;
+                height: 80px;
+                background: #d9534f;
+                margin: 0 auto 10px;
+                border-radius: 8px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 2em;
+              "
+            >
+              🥊
+            </div>
+            <button id="selectDowand" class="fighter-button red">
+              Select Dowand
+            </button>
+            <p style="font-size: 0.6em; color: #ccc; margin-top: 8px">
+              Red Fighter
+            </p>
+          </div>
+
+          <div
+            style="
+              text-align: center;
+              padding: 15px;
+              border: 2px solid #5bc0de;
+              border-radius: 8px;
+              background: rgba(91, 192, 222, 0.1);
+            "
+          >
+            <div
+              style="
+                width: 80px;
+                height: 80px;
+                background: #5bc0de;
+                margin: 0 auto 10px;
+                border-radius: 8px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 2em;
+              "
+            >
+              👤
+            </div>
+            <button id="selectEwon" class="fighter-button blue">
+              Select Ewon
+            </button>
+            <p style="font-size: 0.6em; color: #ccc; margin-top: 8px">
+              Blue Fighter
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Экран 2: Выбор режима игры -->
+      <div id="gameModeSelectionScreen" class="hidden">
+        <h2>Choose Game Mode</h2>
+        <p style="font-size: 0.8em; color: #ccc; margin-bottom: 20px">
+          Playing as:
+          <span id="selectedFighterName" style="color: #ffdd00"></span>
+        </p>
+
+        <!-- Быстрая игра (очередь) -->
+        <div
+          style="
+            margin-bottom: 25px;
+            padding: 20px;
+            border: 2px solid #ff6600;
+            border-radius: 8px;
+            background: rgba(255, 102, 0, 0.1);
+          "
+        >
+          <h3 style="color: #ff6600; margin-bottom: 15px">⚡ Quick Match</h3>
+          <p style="font-size: 0.7em; color: #ccc; margin-bottom: 15px">
+            Automatic matchmaking with random online players
+          </p>
+          <button
+            id="quickMatchBtn"
+            class="game-button"
+            style="background: #ff6600"
+          >
+            Find Match
+          </button>
+        </div>
+
+        <!-- Приватная игра -->
+        <div
+          style="
+            padding: 20px;
+            border: 2px solid #0066ff;
+            border-radius: 8px;
+            background: rgba(0, 102, 255, 0.1);
+          "
+        >
+          <h3 style="color: #0066ff; margin-bottom: 15px">🔒 Private Room</h3>
+          <p style="font-size: 0.7em; color: #ccc; margin-bottom: 15px">
+            Create or join a private room to play with friends
+          </p>
+          <button
+            id="createRoomBtn"
+            class="game-button"
+            style="background: #0066ff; margin-bottom: 15px"
+          >
+            Create Room
+          </button>
+          <div style="display: flex; gap: 10px; align-items: center">
+            <input
+              type="number"
+              id="roomIdInput"
+              placeholder="Room Code"
+              style="
+                padding: 8px;
+                flex: 1;
+                border: 2px solid #555;
+                background: #222;
+                color: white;
+                font-family: 'Press Start 2P', cursive;
+                font-size: 0.8em;
+              "
+            />
+            <button
+              id="joinRoomBtn"
+              class="game-button"
+              style="background: #0066ff"
+            >
+              Join Room
+            </button>
+          </div>
+        </div>
+
+        <button
+          id="backToCharacterBtn"
+          class="game-button"
+          style="margin-top: 20px; background: #666"
+        >
+          ← Back to Character Selection
+        </button>
+      </div>
+
+      <!-- Экран 3: Ожидание/Подготовка -->
+      <div id="waitingScreen" class="hidden">
+        <h2 id="waitingTitle">Waiting...</h2>
+        <p
+          id="waitingSubtitle"
+          style="font-size: 0.8em; color: #ccc; margin-bottom: 20px"
+        ></p>
+
+        <!-- Статус очереди -->
+        <div
+          id="queueStatus"
+          style="
+            display: none;
+            margin-bottom: 20px;
+            padding: 15px;
+            border: 2px solid #ff6600;
+            border-radius: 8px;
+            background: rgba(255, 102, 0, 0.1);
+          "
+        >
+          <h3 style="color: #ff6600; margin-bottom: 10px">
+            🔍 Searching for opponent...
+          </h3>
+          <p style="font-size: 0.8em; color: #ccc">
+            Time elapsed: <span id="queueTime" style="color: #ff6600">0</span>s
+          </p>
+        </div>
+
+        <!-- Статус комнаты -->
+        <div
+          id="roomStatus"
+          style="
+            display: none;
+            margin-bottom: 20px;
+            padding: 15px;
+            border: 2px solid #0066ff;
+            border-radius: 8px;
+            background: rgba(0, 102, 255, 0.1);
+          "
+        >
+          <h3 style="color: #0066ff; margin-bottom: 10px">🔒 Private Room</h3>
+          <p
+            id="roomInfo"
+            style="font-size: 0.8em; color: #ccc; margin-bottom: 10px"
+          >
+            Room: <span id="roomNumber" style="color: #0066ff"></span>
+          </p>
+          <p style="font-size: 0.7em; color: #999">
+            Waiting for opponent to join...
+          </p>
+          <button
+            id="readyBtn"
+            class="game-button"
+            style="display: none; margin-top: 15px; background: #00aa00"
+          >
+            Ready!
+          </button>
+        </div>
+
+        <button id="cancelBtn" class="game-button" style="background: #aa0000">
+          Cancel
+        </button>
+
+        <!-- Информация о состоянии сети -->
+        <div
+          id="networkInfo"
+          style="margin-top: 20px; font-size: 0.7em; color: #888"
+        >
+          <div id="connectionStatus">Connecting...</div>
+          <div id="pingInfo" style="display: none">
+            Ping: <span id="pingValue">0</span>ms
+          </div>
+          <div id="playersOnline" style="display: none">
+            Players online: <span id="onlineCount">0</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="gameContainer" class="rounded-lg overflow-hidden hidden">
+      <div id="healthBars" class="health-bar-container">
+        <div id="player1HealthContainer">
+          <div id="player1NameLabel" class="health-bar-label">Dowand</div>
+          <div class="health-bar">
+            <div id="player1Health" class="health-bar-inner"></div>
+          </div>
+        </div>
+        <div id="player2HealthContainer" style="text-align: right">
+          <div id="player2NameLabel" class="health-bar-label">Ewon</div>
+          <div class="health-bar">
+            <div id="player2Health" class="health-bar-inner"></div>
+          </div>
+        </div>
+      </div>
+      <canvas id="gameCanvas"></canvas>
+      <div id="gameOverScreen" class="game-overlay hidden">
+        <h2 id="winnerMessage"></h2>
+        <button id="playAgainButton" class="game-button">Play Again</button>
+      </div>
+    </div>
+
+    <div class="controls-info">
+      <h3>Controls</h3>
+      <p>
+        <strong>A,D</strong> (Move), <strong>W</strong> (Jump),
+        <strong>S</strong> (Block), <strong>Z</strong> (Arm),
+        <strong>X</strong> (Leg), <strong>SPACE</strong> (Shoot)
+      </p>
+    </div>
+
+    <div id="touchControlsContainer" class="touch-controls hidden"></div>
+
+    <script>
+      // DOM elements for the new three-screen structure
+      const characterSelectionScreen = document.getElementById(
+        "characterSelectionScreen"
+      );
+      const gameModeSelectionScreen = document.getElementById(
+        "gameModeSelectionScreen"
+      );
+      const waitingScreen = document.getElementById("waitingScreen");
+      const gameUiContainer = document.getElementById("uiContainer");
+      const gameMainContainer = document.getElementById("gameContainer");
+      const gameOverScreen = document.getElementById("gameOverScreen");
+      const winnerMessage = document.getElementById("winnerMessage");
+      const playAgainButton = document.getElementById("playAgainButton");
+
+      const player1HealthBar = document.getElementById("player1Health");
+      const player2HealthBar = document.getElementById("player2Health");
+      const player1NameLabel = document.getElementById("player1NameLabel");
+      const player2NameLabel = document.getElementById("player2NameLabel");
+      const touchControlsContainer = document.getElementById(
+        "touchControlsContainer"
+      );
+
+      const canvas = document.getElementById("gameCanvas");
+      const ctx = canvas.getContext("2d");
+
+      // Добавляем переменные для спрайтов
+      let trampSprite = null;
+      let maskSprite = null;
+      let spritesLoaded = false;
+
+      // Game state
+      let selectedFighter = null; // Track the selected character
+      let currentScreen = "character"; // Current active screen: character, gamemode, waiting, game
+
+      const CANVAS_WIDTH = 640;
+      const CANVAS_HEIGHT = 360;
+      const GROUND_Y = CANVAS_HEIGHT - 50;
+      const PLAYER_WIDTH = 70;
+      const PLAYER_HEIGHT = 70;
+      const PLAYER_SPEED = 4;
+      const JUMP_FORCE = 13;
+      const GRAVITY = 0.7;
+      const MAX_HEALTH = 100;
+      const ARM_STRIKE_DAMAGE = 10;
+      const ARM_STRIKE_RANGE_X = 50;
+      const ARM_STRIKE_RANGE_Y = 20;
+      const LEG_STRIKE_DAMAGE = 12;
+      const LEG_STRIKE_RANGE_X = 60;
+      const LEG_STRIKE_RANGE_Y = 15;
+      const MELEE_ATTACK_DURATION = 15;
+      const BULLET_DAMAGE = 15;
+      const BULLET_SPEED = 8;
+      const BULLET_WIDTH = 15;
+      const BULLET_HEIGHT = 8;
+      const SHOOT_COOLDOWN = 60;
+      const HIT_STUN_DURATION = 20;
+      const KNOCKBACK_FORCE = 5;
+      const BLOCK_DAMAGE_REDUCTION = 1;
+
+      // Загрузка спрайтов
+      function loadSprites() {
+        return new Promise((resolve) => {
+          let loadedCount = 0;
+          const totalSprites = 2;
+
+          function checkAllLoaded() {
+            loadedCount++;
+            if (loadedCount === totalSprites) {
+              spritesLoaded = true;
+              resolve();
+            }
+          }
+
+          trampSprite = new Image();
+          trampSprite.onload = checkAllLoaded;
+          trampSprite.src = "assets/tramp.png";
+
+          maskSprite = new Image();
+          maskSprite.onload = checkAllLoaded;
+          maskSprite.src = "assets/mask.png";
+        });
+      }
+
+      let gameState = "init";
+      let humanPlayer, cpuOpponent;
+      let bullets = []; // Single bullets array for both players
+      let keys = {};
+      let animationFrameId;
+
+      // WebSocket клиент
+      let ws = null;
+      let playerId = null;
+      let roomId = null;
+      let isMultiplayer = false;
+      let networkPlayers = new Map();
+      let lastPingTime = 0;
+      let latency = 0;
+      let inQueue = false;
+      let queueStartTime = 0;
+      let queueTimer = null;
+      let onlineCount = 0;
+
+      // Подключение к WebSocket серверу
+      function connectToServer() {
+        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+        const wsUrl = `${protocol}//${window.location.host}`;
+
+        ws = new WebSocket(wsUrl);
+
+        ws.onopen = () => {
+          console.log("Подключено к серверу");
+          // Измеряем пинг каждые 5 секунд
+          setInterval(measurePing, 5000);
+          // Запрашиваем статистику онлайн
+          getOnlineStats();
+          setInterval(getOnlineStats, 10000); // каждые 10 секунд
+        };
+
+        ws.onmessage = (event) => {
+          const message = JSON.parse(event.data);
+          handleServerMessage(message);
+        };
+
+        ws.onclose = () => {
+          console.log("Соединение с сервером закрыто");
+          // Сбрасываем состояние очереди
+          if (inQueue) {
+            stopQueueTimer();
+            inQueue = false;
+          }
+          // Попытка переподключения через 3 секунды
+          setTimeout(connectToServer, 3000);
+        };
+
+        ws.onerror = (error) => {
+          console.error("Ошибка WebSocket:", error);
+        };
+      }
+
+      // Обработка сообщений от сервера
+      function handleServerMessage(message) {
+        switch (message.type) {
+          case "connected":
+            playerId = message.playerId;
+            console.log(`Получен ID игрока: ${playerId}`);
+            getOnlineStats(); // Получаем статистику онлайн при подключении
+            break;
+
+          case "roomCreated":
+            roomId = message.roomId;
+            console.log(`Создана комната: ${roomId}`);
+            document.getElementById("roomNumber").textContent = roomId;
+            document.getElementById("readyBtn").style.display = "inline-block";
+            break;
+
+          case "roomJoined":
+            roomId = message.roomId;
+            console.log(`Присоединился к комнате: ${roomId}`);
+            document.getElementById("roomNumber").textContent = roomId;
+            document.getElementById("readyBtn").style.display = "inline-block";
+            break;
+
+          case "playerJoined":
+            console.log(`Игрок ${message.playerId} присоединился`);
+            break;
+
+          case "fighterSelected":
+            console.log(`Игрок ${message.playerId} выбрал ${message.fighter}`);
+            break;
+
+          case "gameStart":
+            isMultiplayer = true;
+            startMultiplayerGame(message.players);
+            break;
+
+          case "gameUpdate":
+            updateNetworkPlayers(message);
+            break;
+
+          case "playerInput":
+            handleNetworkPlayerInput(message);
+            break;
+
+          case "playerHit":
+            handlePlayerHit(message);
+            break;
+
+          case "bulletHit":
+            handleBulletHit(message);
+            break;
+
+          case "playerDisconnected":
+            console.log(`Игрок ${message.playerId} отключился`);
+            break;
+
+          case "pong":
+            latency = Date.now() - message.timestamp;
+            break;
+
+          case "queueJoined":
+            inQueue = true;
+            queueStartTime = Date.now();
+            startQueueTimer();
+            console.log("Присоединился к очереди");
+            break;
+
+          case "queueLeft":
+            inQueue = false;
+            stopQueueTimer();
+            console.log("Вышел из очереди");
+            break;
+
+          case "matchFound":
+            inQueue = false;
+            stopQueueTimer();
+            roomId = message.roomId;
+            console.log(`Матч найден! Комната: ${roomId}`);
+            // Игра запустится автоматически через gameStart
+            break;
+
+          case "onlineStats":
+            onlineCount = message.onlineCount;
+            updateOnlineDisplay();
+            break;
+
+          case "roomLeft":
+            console.log("Successfully left room");
+            break;
+
+          case "error":
+            console.error("Ошибка сервера:", message.message);
+            alert("Ошибка: " + message.message);
+            break;
+        }
+      }
+
+      // Отправка сообщений на сервер
+      function sendToServer(message) {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify(message));
+        }
+      }
+
+      // Измерение пинга
+      function measurePing() {
+        lastPingTime = Date.now();
+        sendToServer({
+          type: "ping",
+          timestamp: lastPingTime,
+        });
+      }
+
+      // Создание комнаты
+      function createRoom() {
+        sendToServer({ type: "createRoom" });
+      }
+
+      // Присоединение к комнате
+      function joinRoom(roomIdInput) {
+        sendToServer({
+          type: "joinRoom",
+          roomId: parseInt(roomIdInput),
+        });
+      }
+
+      // Отправка выбора персонажа
+      function selectNetworkFighter(fighter) {
+        sendToServer({
+          type: "selectFighter",
+          fighter: fighter,
+        });
+      }
+
+      // Отправка готовности
+      function setReady() {
+        sendToServer({ type: "ready" });
+      }
+
+      // Присоединение к очереди
+      function joinQueue() {
+        sendToServer({ type: "joinQueue" });
+      }
+
+      // Выход из очереди
+      function leaveQueue() {
+        sendToServer({ type: "leaveQueue" });
+      }
+
+      // Получение статистики онлайн
+      function getOnlineStats() {
+        sendToServer({ type: "getOnlineCount" });
+      }
+
+      // Управление таймером очереди
+      function startQueueTimer() {
+        queueTimer = setInterval(() => {
+          const elapsed = Math.floor((Date.now() - queueStartTime) / 1000);
+          document.getElementById("queueTime").textContent = elapsed;
+        }, 1000);
+      }
+
+      function stopQueueTimer() {
+        if (queueTimer) {
+          clearInterval(queueTimer);
+          queueTimer = null;
+        }
+      }
+
+      // Обновить отображение онлайн
+      function updateOnlineDisplay() {
+        const playersOnlineDiv = document.getElementById("playersOnline");
+        const onlineCountSpan = document.getElementById("onlineCount");
+
+        if (onlineCount > 0) {
+          playersOnlineDiv.style.display = "block";
+          onlineCountSpan.textContent = onlineCount;
+        } else {
+          playersOnlineDiv.style.display = "none";
+        }
+      }
+
+      // Отправка игрового ввода
+      function sendPlayerInput(input) {
+        if (!isMultiplayer) return;
+
+        sendToServer({
+          type: "playerInput",
+          input: input,
+          timestamp: Date.now(),
+        });
+      }
+
+      // Обновление сетевых игроков
+      function updateNetworkPlayers(message) {
+        // Проверяем, что игроки инициализированы
+        if (!humanPlayer) {
+          console.warn("humanPlayer is null, skipping network update");
+          return;
+        }
+
+        message.players.forEach((playerData) => {
+          if (playerData.id === playerId) {
+            // Обновляем локального игрока данными с сервера (для синхронизации)
+            if (humanPlayer) {
+              // Применяем интерполяцию для плавности
+              const lerpFactor = 0.2;
+              humanPlayer.x =
+                humanPlayer.x * (1 - lerpFactor) +
+                playerData.movement.x * lerpFactor;
+              humanPlayer.y =
+                humanPlayer.y * (1 - lerpFactor) +
+                playerData.movement.y * lerpFactor;
+              humanPlayer.health = playerData.health;
+              humanPlayer.facingRight = playerData.movement.facing;
+              humanPlayer.isBlocking = playerData.actions.blocking;
+
+              if (playerData.actions.attacking) {
+                humanPlayer.currentAttackType = playerData.actions.attacking;
+                humanPlayer.attackTimer = MELEE_ATTACK_DURATION;
+              }
+            }
+          } else {
+            // Обновляем удаленного игрока
+            if (cpuOpponent && cpuOpponent.networkId === playerData.id) {
+              // Применяем более агрессивную интерполяцию для удаленного игрока
+              const lerpFactor = 0.6;
+              cpuOpponent.x =
+                cpuOpponent.x * (1 - lerpFactor) +
+                playerData.movement.x * lerpFactor;
+              cpuOpponent.y =
+                cpuOpponent.y * (1 - lerpFactor) +
+                playerData.movement.y * lerpFactor;
+              cpuOpponent.health = playerData.health;
+              cpuOpponent.facingRight = playerData.movement.facing;
+              cpuOpponent.isBlocking = playerData.actions.blocking;
+
+              if (playerData.actions.attacking) {
+                cpuOpponent.currentAttackType = playerData.actions.attacking;
+                cpuOpponent.attackTimer = MELEE_ATTACK_DURATION;
+              }
+            }
+          }
+        });
+
+        // Обновляем пули из серверных данных
+        if (message.bullets) {
+          bullets = message.bullets.map((bulletData) => {
+            const bullet = new Bullet(
+              bulletData.x,
+              bulletData.y,
+              bulletData.velocityX > 0 ? 1 : -1,
+              bulletData.ownerId
+            );
+            bullet.id = bulletData.id;
+            bullet.velocityX = bulletData.velocityX;
+            bullet.velocityY = bulletData.velocityY;
+
+            // Определяем цвет пули по владельцу
+            if (bulletData.ownerId === playerId) {
+              bullet.color = humanPlayer ? humanPlayer.color : "#ffff00";
+            } else {
+              bullet.color = cpuOpponent ? cpuOpponent.color : "#ff0000";
+            }
+
+            return bullet;
+          });
+        }
+
+        // Обновляем полоски здоровья только если игроки существуют
+        if (humanPlayer && cpuOpponent) {
+          updateHealthBars();
+        }
+      }
+
+      // Обработка ввода сетевого игрока
+      function handleNetworkPlayerInput(message) {
+        if (message.playerId !== playerId) {
+          const playerData = message.input;
+          networkPlayers.set(message.playerId, {
+            ...networkPlayers.get(message.playerId),
+            ...playerData,
+            timestamp: message.timestamp,
+          });
+        }
+      }
+
+      // Обработка попадания атаки ближнего боя
+      function handlePlayerHit(message) {
+        console.log(
+          `Player hit: ${message.attackerId} → ${message.targetId}, damage: ${message.damage}`
+        );
+
+        let target = null;
+        if (message.targetId === playerId) {
+          target = humanPlayer;
+        } else if (cpuOpponent && cpuOpponent.networkId === message.targetId) {
+          target = cpuOpponent;
+        }
+
+        if (target) {
+          // Обновляем здоровье
+          target.health = message.targetHealth;
+
+          // Применяем эффект попадания
+          target.isHit = true;
+          target.hitStunTimer = HIT_STUN_DURATION;
+
+          // Применяем отбрасывание
+          target.x += message.knockback;
+          target.x = Math.max(
+            0,
+            Math.min(CANVAS_WIDTH - PLAYER_WIDTH, target.x)
+          );
+
+          // Если игрок прыгал, применяем отбрасывание по Y
+          if (target.isJumping) {
+            target.velocityY = -Math.abs(message.knockback) / 2;
+          }
+
+          // Обновляем полоски здоровья только если оба игрока существуют
+          if (humanPlayer && cpuOpponent) {
+            updateHealthBars();
+          }
+        }
+      }
+
+      // Обработка попадания пули
+      function handleBulletHit(message) {
+        console.log(
+          `Bullet hit: ${message.shooterId} → ${message.targetId}, damage: ${message.damage}`
+        );
+
+        let target = null;
+        if (message.targetId === playerId) {
+          target = humanPlayer;
+        } else if (cpuOpponent && cpuOpponent.networkId === message.targetId) {
+          target = cpuOpponent;
+        }
+
+        if (target) {
+          // Обновляем здоровье
+          target.health = message.targetHealth;
+
+          // Применяем эффект попадания
+          target.isHit = true;
+          target.hitStunTimer = HIT_STUN_DURATION;
+
+          // Применяем отбрасывание
+          target.x += message.knockback;
+          target.x = Math.max(
+            0,
+            Math.min(CANVAS_WIDTH - PLAYER_WIDTH, target.x)
+          );
+
+          // Если игрок прыгал, применяем отбрасывание по Y
+          if (target.isJumping) {
+            target.velocityY = -Math.abs(message.knockback) / 2;
+          }
+
+          // Обновляем полоски здоровья только если оба игрока существуют
+          if (humanPlayer && cpuOpponent) {
+            updateHealthBars();
+          }
+        }
+
+        // Удаляем пулю из локального массива
+        if (message.bulletId) {
+          bullets = bullets.filter((b) => b.id !== message.bulletId);
+        }
+      }
+
+      // Запуск многопользовательской игры
+      function startMultiplayerGame(players) {
+        console.log("Запуск многопользовательской игры");
+
+        // Скрываем экран окончания игры если он был показан
+        gameOverScreen.classList.add("hidden");
+
+        gameState = "playing";
+
+        // Настройка игроков на основе данных сервера
+        players.forEach((player) => {
+          if (player.id === playerId) {
+            // Локальный игрок
+            humanPlayer = new Player(player.fighter, true);
+            humanPlayer.networkId = player.id;
+          } else {
+            // Удаленный игрок
+            cpuOpponent = new Player(player.fighter, false);
+            cpuOpponent.networkId = player.id;
+            cpuOpponent.isNetworkPlayer = true;
+          }
+        });
+
+        // Показать игровой экран
+        showGameScreen();
+
+        // Настроить холст
+        canvas.width = CANVAS_WIDTH;
+        canvas.height = CANVAS_HEIGHT;
+
+        // Запустить игровой цикл
+        gameLoop();
+      }
+
+      const fighters = {
+        dowand: {
+          name: "Dowand",
+          color: "#ff4136",
+          defaultFacingRight: true,
+          startX: CANVAS_WIDTH / 4 - PLAYER_WIDTH / 2,
+          sprite: "tramp",
+        },
+        ewon: {
+          name: "Ewon",
+          color: "#0074d9",
+          defaultFacingRight: false,
+          startX: (CANVAS_WIDTH * 3) / 4 - PLAYER_WIDTH / 2,
+          sprite: "mask",
+        },
+      };
+
+      const SHARED_CONTROLS = {
+        left: "KeyA",
+        right: "KeyD",
+        jump: "KeyW",
+        block: "KeyS",
+        shoot: "Space",
+        armStrike: "KeyZ",
+        legStrike: "KeyX",
+      };
+
+      class Player {
+        constructor(fighterKey, isHuman = false) {
+          // Защита от null/undefined значений fighterKey
+          if (!fighterKey || !fighters[fighterKey]) {
+            console.warn(
+              `Invalid fighterKey: ${fighterKey}, using default 'dowand'`
+            );
+            fighterKey = "dowand"; // значение по умолчанию
+          }
+
+          const fighterDetails = fighters[fighterKey];
+          this.x = fighterDetails.startX;
+          this.y = GROUND_Y - PLAYER_HEIGHT;
+          this.width = PLAYER_WIDTH;
+          this.height = PLAYER_HEIGHT;
+          this.baseColor = fighterDetails.color;
+          this.color = fighterDetails.color;
+          this.health = MAX_HEALTH;
+          this.velocityY = 0;
+          this.isJumping = false;
+          this.currentAttackType = null;
+          this.attackTimer = 0;
+          this.shootCooldownTimer = 0;
+          this.isBlocking = false;
+          this.facingRight = fighterDetails.defaultFacingRight;
+          this.isHit = false;
+          this.hitStunTimer = 0;
+          this.name = fighterDetails.name;
+          this.isHuman = isHuman;
+          this.fighterKey = fighterKey;
+          if (this.isHuman) this.controls = SHARED_CONTROLS;
+          else {
+            // CPU specific properties
+            this.aiActionInterval = 60; // Decide new action roughly every second
+            this.aiActionTimer = 0;
+            this.aiTargetX = null; // For movement
+          }
+        }
+        draw() {
+          // Рисуем тень
+          ctx.fillStyle = "rgba(0, 0, 0, 0.2)";
+          ctx.beginPath();
+          ctx.ellipse(
+            this.x + this.width / 2,
+            GROUND_Y + 5,
+            (this.width / 2) * 0.8,
+            5,
+            0,
+            0,
+            Math.PI * 2
+          );
+          ctx.fill();
+
+          // Если спрайты загружены, отображаем спрайт
+          if (spritesLoaded) {
+            let spriteToUse = null;
+
+            // Выбираем нужный спрайт в зависимости от персонажа
+            if (this.fighterKey === "dowand") {
+              spriteToUse = trampSprite;
+            } else if (this.fighterKey === "ewon") {
+              spriteToUse = maskSprite;
+            }
+
+            if (spriteToUse) {
+              ctx.save();
+
+              // Применяем эффекты
+              if (this.isHit && Math.floor(this.hitStunTimer / 4) % 2 === 0) {
+                // Эффект мигания при ударе
+                ctx.globalCompositeOperation = "lighter";
+                ctx.fillStyle = "white";
+                ctx.fillRect(this.x, this.y, this.width, this.height);
+                ctx.globalCompositeOperation = "source-over";
+              } else if (this.isBlocking && !this.isHit) {
+                // Эффект затемнения при блоке
+                ctx.globalAlpha = 0.7;
+              }
+
+              // Отзеркаливаем спрайт если нужно
+              if (this.fighterKey === "ewon") {
+                // Для персонажа с маской инвертируем логику отзеркаливания
+                if (this.facingRight) {
+                  ctx.translate(this.x + this.width, this.y);
+                  ctx.scale(-1, 1);
+                  ctx.drawImage(spriteToUse, 0, 0, this.width, this.height);
+                } else {
+                  ctx.drawImage(
+                    spriteToUse,
+                    this.x,
+                    this.y,
+                    this.width,
+                    this.height
+                  );
+                }
+              } else {
+                // Для обычного персонажа (tramp) оставляем как было
+                if (!this.facingRight) {
+                  ctx.translate(this.x + this.width, this.y);
+                  ctx.scale(-1, 1);
+                  ctx.drawImage(spriteToUse, 0, 0, this.width, this.height);
+                } else {
+                  ctx.drawImage(
+                    spriteToUse,
+                    this.x,
+                    this.y,
+                    this.width,
+                    this.height
+                  );
+                }
+              }
+
+              ctx.restore();
+            }
+          } else {
+            // Fallback - рисуем прямоугольники как раньше, если спрайты не загружены
+            let currentFillStyle = this.baseColor;
+            if (this.isHit && Math.floor(this.hitStunTimer / 4) % 2 === 0)
+              currentFillStyle = "white";
+            else if (this.isBlocking && !this.isHit) {
+              let r = parseInt(this.baseColor.slice(1, 3), 16),
+                g = parseInt(this.baseColor.slice(3, 5), 16),
+                b = parseInt(this.baseColor.slice(5, 7), 16);
+              currentFillStyle = `rgb(${Math.max(0, r - 50)},${Math.max(
+                0,
+                g - 50
+              )},${Math.max(0, b - 50)})`;
+            }
+            ctx.fillStyle = currentFillStyle;
+            const hH = this.height * 0.25,
+              hW = this.width * 0.6,
+              tH = this.height * 0.45,
+              tW = this.width,
+              lH = this.height * 0.3,
+              lW = this.width * 0.8;
+            const hX = this.x + (this.width - hW) / 2,
+              hY = this.y;
+            ctx.fillRect(hX, hY, hW, hH);
+            const tX = this.x,
+              tY = this.y + hH;
+            ctx.fillRect(tX, tY, tW, tH);
+            const lX = this.x + (this.width - lW) / 2,
+              lY = this.y + hH + tH;
+            ctx.fillRect(lX, lY, lW, lH);
+          }
+
+          // Рисуем индикаторы атак (остается как было)
+          if (this.currentAttackType && this.attackTimer > 0) {
+            // Определяем переменные для расчета позиций атак
+            const hH = this.height * 0.25;
+            const tH = this.height * 0.45;
+
+            let aX,
+              aY,
+              aRX,
+              aRY,
+              aC,
+              aBaseY = this.y;
+            if (this.currentAttackType === "arm") {
+              aRX = ARM_STRIKE_RANGE_X;
+              aRY = ARM_STRIKE_RANGE_Y;
+              aY = aBaseY + hH + tH / 2 - aRY / 2;
+              aC = "rgba(255,255,0,0.6)";
+            } else if (this.currentAttackType === "leg") {
+              aRX = LEG_STRIKE_RANGE_X;
+              aRY = LEG_STRIKE_RANGE_Y;
+              aY = aBaseY + hH + tH - aRY / 2;
+              aC = "rgba(255,165,0,0.6)";
+            }
+            if (aRX) {
+              aX = this.facingRight ? this.x + this.width : this.x - aRX;
+              ctx.fillStyle = aC;
+              ctx.fillRect(aX, aY, aRX, aRY);
+            }
+          }
+        }
+
+        update(opponent) {
+          if (this.isHuman) this.updateHumanInput(opponent);
+          else this.updateCpuAI(opponent);
+
+          this.y += this.velocityY;
+          this.velocityY += GRAVITY;
+          if (this.y + this.height >= GROUND_Y) {
+            this.y = GROUND_Y - this.height;
+            this.velocityY = 0;
+            this.isJumping = false;
+          }
+          if (this.x < 0) this.x = 0;
+          if (this.x + this.width > CANVAS_WIDTH)
+            this.x = CANVAS_WIDTH - this.width;
+
+          if (this.shootCooldownTimer > 0) this.shootCooldownTimer--;
+          if (this.currentAttackType && this.attackTimer > 0) {
+            this.attackTimer--;
+            if (this.attackTimer <= 0) this.currentAttackType = null;
+            else this.checkMeleeHit(opponent);
+          }
+          if (this.hitStunTimer > 0) {
+            this.hitStunTimer--;
+            if (this.hitStunTimer <= 0) this.isHit = false;
+          } else {
+            this.color = this.baseColor;
+          }
+          // Basic collision push
+          if (opponent) {
+            const r1 = { x: this.x, y: this.y, w: this.width, h: this.height },
+              r2 = {
+                x: opponent.x,
+                y: opponent.y,
+                w: opponent.width,
+                h: opponent.height,
+              };
+            if (
+              r1.x < r2.x + r2.w &&
+              r1.x + r1.w > r2.x &&
+              r1.y < r2.y + r2.h &&
+              r1.y + r1.h > r2.y
+            ) {
+              const oX = r1.x < r2.x ? r1.x + r1.w - r2.x : r2.x + r2.w - r1.x;
+              if (!this.isBlocking && !opponent.isBlocking) {
+                if (this.x < opponent.x) {
+                  this.x -= oX / 2;
+                  opponent.x += oX / 2;
+                } else {
+                  this.x += oX / 2;
+                  opponent.x -= oX / 2;
+                }
+                if (this.x < 0) this.x = 0;
+                if (this.x + this.width > CANVAS_WIDTH)
+                  this.x = CANVAS_WIDTH - this.width;
+                if (opponent.x < 0) opponent.x = 0;
+                if (opponent.x + opponent.width > CANVAS_WIDTH)
+                  opponent.x = CANVAS_WIDTH - opponent.width;
+              }
+            }
+          }
+        }
+
+        updateHumanInput(opponent) {
+          if (!this.controls || Object.keys(this.controls).length === 0) return;
+
+          const oldState = {
+            x: this.x,
+            y: this.y,
+            facing: this.facingRight,
+            blocking: this.isBlocking,
+            attacking: this.currentAttackType,
+            health: this.health,
+          };
+
+          this.isBlocking =
+            keys[this.controls.block] &&
+            !this.isJumping &&
+            !this.currentAttackType &&
+            !this.isHit;
+          if (!this.isHit && !this.isBlocking) {
+            if (keys[this.controls.left]) {
+              this.x -= PLAYER_SPEED;
+              this.facingRight = false;
+            }
+            if (keys[this.controls.right]) {
+              this.x += PLAYER_SPEED;
+              this.facingRight = true;
+            }
+          }
+          if (
+            keys[this.controls.jump] &&
+            !this.isJumping &&
+            !this.isHit &&
+            !this.isBlocking
+          ) {
+            this.velocityY = -JUMP_FORCE;
+            this.isJumping = true;
+          }
+
+          if (!this.currentAttackType && !this.isHit && !this.isBlocking) {
+            if (keys[this.controls.armStrike]) {
+              this.currentAttackType = "arm";
+              this.attackTimer = MELEE_ATTACK_DURATION;
+            } else if (keys[this.controls.legStrike]) {
+              this.currentAttackType = "leg";
+              this.attackTimer = MELEE_ATTACK_DURATION;
+            }
+          }
+          if (
+            keys[this.controls.shoot] &&
+            this.shootCooldownTimer <= 0 &&
+            !this.isHit &&
+            !this.currentAttackType &&
+            !this.isBlocking
+          ) {
+            this.shoot();
+            this.shootCooldownTimer = SHOOT_COOLDOWN;
+          }
+
+          // Отправляем изменения состояния на сервер (только если что-то изменилось)
+          if (isMultiplayer && this.networkId === playerId) {
+            const newState = {
+              x: this.x,
+              y: this.y,
+              facing: this.facingRight,
+              blocking: this.isBlocking,
+              attacking: this.currentAttackType,
+              health: this.health,
+            };
+
+            // Проверяем, изменилось ли состояние
+            if (JSON.stringify(oldState) !== JSON.stringify(newState)) {
+              sendPlayerInput({
+                movement: {
+                  x: this.x,
+                  y: this.y,
+                  facing: this.facingRight,
+                },
+                actions: {
+                  attacking: this.currentAttackType,
+                  blocking: this.isBlocking,
+                },
+                health: this.health,
+              });
+            }
+          }
+        }
+        updateCpuAI(opponent) {
+          // Если это сетевой игрок, обновляем его состояние из сети
+          if (this.isNetworkPlayer && networkPlayers.has(this.networkId)) {
+            const networkData = networkPlayers.get(this.networkId);
+
+            // Интерполяция позиции для плавности
+            const lerpFactor = 0.3; // Коэффициент интерполяции
+            this.x = this.x + (networkData.x - this.x) * lerpFactor;
+            this.y = this.y + (networkData.y - this.y) * lerpFactor;
+            this.facingRight = networkData.facing;
+            this.isBlocking = networkData.blocking;
+            this.currentAttackType = networkData.attacking;
+            this.health = networkData.health;
+
+            return; // Выходим, не выполняя ИИ
+          }
+
+          // Оригинальная логика ИИ для одиночной игры
+          this.aiActionTimer--;
+          if (this.aiActionTimer <= 0) {
+            this.aiActionTimer =
+              this.aiActionInterval + Math.random() * 30 - 15; // Reset timer with some variance
+            this.isBlocking = false; // Stop blocking before new action
+
+            const distanceToOpponent = Math.abs(this.x - opponent.x);
+            const randomAction = Math.random();
+
+            if (this.isHit) return; // Don't act if stunned
+
+            // Offensive actions
+            if (
+              distanceToOpponent < PLAYER_WIDTH * 2.5 &&
+              !this.currentAttackType
+            ) {
+              if (randomAction < 0.25 && this.shootCooldownTimer <= 0) {
+                this.shoot();
+                this.shootCooldownTimer = SHOOT_COOLDOWN * (1 + Math.random());
+              } // CPU shoots less predictably
+              else if (randomAction < 0.5) {
+                this.currentAttackType = "arm";
+                this.attackTimer = MELEE_ATTACK_DURATION;
+              } else if (randomAction < 0.75) {
+                this.currentAttackType = "leg";
+                this.attackTimer = MELEE_ATTACK_DURATION;
+              }
+            }
+            // Defensive action
+            if (
+              opponent.currentAttackType &&
+              distanceToOpponent < PLAYER_WIDTH * 3 &&
+              randomAction < 0.4
+            ) {
+              this.isBlocking = true;
+            }
+            // Movement & Jump
+            if (!this.isBlocking && !this.currentAttackType) {
+              if (distanceToOpponent > PLAYER_WIDTH * 1.5) {
+                // Move towards if far
+                if (this.x < opponent.x) {
+                  this.x += PLAYER_SPEED;
+                  this.facingRight = true;
+                } else {
+                  this.x -= PLAYER_SPEED;
+                  this.facingRight = false;
+                }
+              } else if (distanceToOpponent < PLAYER_WIDTH * 0.8) {
+                // Move away if too close
+                if (this.x < opponent.x) {
+                  this.x -= PLAYER_SPEED / 2;
+                  this.facingRight = false;
+                } else {
+                  this.x += PLAYER_SPEED / 2;
+                  this.facingRight = true;
+                }
+              }
+              if (randomAction > 0.85 && !this.isJumping) {
+                this.velocityY = -JUMP_FORCE;
+                this.isJumping = true;
+              }
+            }
+          }
+          // If CPU is blocking, it shouldn't move or initiate attacks
+          if (this.isBlocking) return;
+        }
+
+        checkMeleeHit(opponent) {
+          if (!this.currentAttackType || !opponent) return;
+
+          // В многопользовательском режиме сервер обрабатывает попадания
+          if (isMultiplayer && this.networkId === playerId) {
+            // Для локального игрока в сети не обрабатываем урон здесь
+            // Сервер отправит событие playerHit если попадание произошло
+            return;
+          }
+
+          // В одиночном режиме обрабатываем попадания как обычно
+          let aX,
+            aY,
+            aRX,
+            aRY,
+            dmg,
+            hH = this.height * 0.25,
+            tH = this.height * 0.45,
+            aBaseY = this.y;
+          if (this.currentAttackType === "arm") {
+            aRX = ARM_STRIKE_RANGE_X;
+            aRY = ARM_STRIKE_RANGE_Y;
+            aY = aBaseY + hH + tH / 2 - aRY / 2;
+            dmg = ARM_STRIKE_DAMAGE;
+          } else if (this.currentAttackType === "leg") {
+            aRX = LEG_STRIKE_RANGE_X;
+            aRY = LEG_STRIKE_RANGE_Y;
+            aY = aBaseY + hH + tH - aRY / 2;
+            dmg = LEG_STRIKE_DAMAGE;
+          } else return;
+          aX = this.facingRight ? this.x + this.width : this.x - aRX;
+          const attBox = { x: aX, y: aY, width: aRX, height: aRY },
+            defBox = {
+              x: opponent.x,
+              y: opponent.y,
+              width: opponent.width,
+              height: opponent.height,
+            };
+          if (
+            attBox.x < defBox.x + defBox.width &&
+            attBox.x + attBox.width > defBox.x &&
+            attBox.y < defBox.y + defBox.height &&
+            attBox.y + attBox.height > defBox.y
+          ) {
+            opponent.takeDamage(dmg, this.facingRight);
+            this.attackTimer = 0;
+            this.currentAttackType = null; // Attack connects, end it
+          }
+        }
+        shoot() {
+          if (this.shootCooldownTimer > 0) return; // Проверяем кулдаун
+
+          const bX = this.facingRight
+            ? this.x + this.width
+            : this.x - BULLET_WIDTH;
+          const bY =
+            this.y +
+            this.height * 0.25 +
+            (this.height * 0.45) / 2 -
+            BULLET_HEIGHT / 2;
+          const dir = this.facingRight ? 1 : -1;
+
+          if (isMultiplayer && this.networkId === playerId) {
+            // В многопользовательском режиме отправляем запрос на создание пули на сервер
+            sendPlayerInput({
+              newBullet: {
+                x: bX,
+                y: bY,
+                velocityX: BULLET_SPEED * dir,
+                velocityY: 0,
+              },
+            });
+            this.shootCooldownTimer = SHOOT_COOLDOWN;
+          } else {
+            // В одиночном режиме создаем пулю локально
+            const bColor = this.fighterKey === "dowand" ? "#ff9999" : "#9999ff";
+            const bullet = new Bullet(bX, bY, dir, this, bColor);
+            bullet.ownerId = this.networkId || this;
+            bullet.velocityX = BULLET_SPEED * dir;
+            bullet.velocityY = 0;
+            bullets.push(bullet);
+            this.shootCooldownTimer = SHOOT_COOLDOWN;
+          }
+        }
+        takeDamage(damage, attackerFacingRight) {
+          let actualDamage = damage;
+          if (this.isBlocking) actualDamage *= 1 - BLOCK_DAMAGE_REDUCTION;
+          this.health -= actualDamage;
+          if (this.health < 0) this.health = 0;
+          this.isHit = true;
+          this.hitStunTimer = HIT_STUN_DURATION;
+          this.currentAttackType = null;
+          this.attackTimer = 0; // Interrupt attack if hit
+          if (attackerFacingRight) this.x += KNOCKBACK_FORCE;
+          else this.x -= KNOCKBACK_FORCE;
+          if (this.isJumping) this.velocityY = -KNOCKBACK_FORCE / 2;
+          updateHealthBars();
+        }
+        reset() {
+          this.x = fighters[this.fighterKey].startX;
+          this.y = GROUND_Y - PLAYER_HEIGHT;
+          this.health = MAX_HEALTH;
+          this.velocityY = 0;
+          this.isJumping = false;
+          this.currentAttackType = null;
+          this.attackTimer = 0;
+          this.shootCooldownTimer = 0;
+          this.isHit = false;
+          this.hitStunTimer = 0;
+          this.isBlocking = false;
+          this.facingRight = fighters[this.fighterKey].defaultFacingRight;
+          this.color = this.baseColor;
+        }
+      }
+      class Bullet {
+        constructor(x, y, direction, owner, color = "#fff000") {
+          Object.assign(this, { x, y, direction, owner, color });
+          this.width = BULLET_WIDTH;
+          this.height = BULLET_HEIGHT;
+          this.speed = BULLET_SPEED;
+          this.velocityX = BULLET_SPEED * direction;
+          this.velocityY = 0;
+        }
+        draw() {
+          ctx.fillStyle = this.color;
+          ctx.fillRect(this.x, this.y, this.width, this.height);
+        }
+        update() {
+          this.x += this.velocityX;
+          this.y += this.velocityY;
+        }
+      }
+
+      function updateHealthBars() {
+        // Добавляем проверки на существование игроков
+        if (!humanPlayer || !cpuOpponent) {
+          return; // Выходим, если игроки не инициализированы
+        }
+
+        const p1 =
+          humanPlayer.fighterKey === "dowand" ? humanPlayer : cpuOpponent;
+        const p2 =
+          humanPlayer.fighterKey === "dowand" ? cpuOpponent : humanPlayer;
+
+        if (player1HealthBar && p1) {
+          player1HealthBar.style.width = (p1.health / MAX_HEALTH) * 100 + "%";
+        }
+        if (player2HealthBar && p2) {
+          player2HealthBar.style.width = (p2.health / MAX_HEALTH) * 100 + "%";
+        }
+      }
+
+      function handleBulletCollisions() {
+        // В многопользовательском режиме НЕ обновляем позиции пуль - это делает сервер
+        if (isMultiplayer) {
+          // Только удаляем пули, вылетевшие за экран (для подстраховки)
+          for (let i = bullets.length - 1; i >= 0; i--) {
+            const bullet = bullets[i];
+            if (bullet.x + bullet.width < -50 || bullet.x > CANVAS_WIDTH + 50) {
+              bullets.splice(i, 1);
+            }
+          }
+          return; // Коллизии и движение обрабатывает сервер
+        }
+
+        // В одиночном режиме обрабатываем коллизии и движение как обычно
+        for (let i = bullets.length - 1; i >= 0; i--) {
+          const bullet = bullets[i];
+          bullet.update(); // Обновляем позицию только в одиночном режиме
+          if (bullet.x + bullet.width < 0 || bullet.x > CANVAS_WIDTH) {
+            bullets.splice(i, 1);
+            continue;
+          }
+
+          const target =
+            bullet.owner === humanPlayer ? cpuOpponent : humanPlayer;
+          if (target && !target.isHit) {
+            const bBox = {
+                x: bullet.x,
+                y: bullet.y,
+                w: bullet.width,
+                h: bullet.height,
+              },
+              pBox = {
+                x: target.x,
+                y: target.y,
+                w: target.width,
+                h: target.height,
+              };
+            if (
+              bBox.x < pBox.x + pBox.w &&
+              bBox.x + bBox.w > pBox.x &&
+              bBox.y < pBox.y + pBox.h &&
+              bBox.y + bBox.h > pBox.y
+            ) {
+              if (!target.isBlocking) {
+                // Only do damage if not blocking
+                target.takeDamage(BULLET_DAMAGE, bullet.direction > 0);
+              } else {
+                // Bullet hits block, still apply hitstun/knockback
+                target.isHit = true;
+                target.hitStunTimer = HIT_STUN_DURATION;
+                if (bullet.direction > 0) target.x += KNOCKBACK_FORCE / 2;
+                else target.x -= KNOCKBACK_FORCE / 2;
+              }
+              bullets.splice(i, 1);
+              break;
+            }
+          }
+        }
+      }
+
+      function checkGameOver() {
+        // Проверяем, что игроки существуют перед проверкой здоровья
+        if (!humanPlayer || !cpuOpponent) {
+          return; // Не проверяем окончание игры если игроки не инициализированы
+        }
+
+        let winner = null;
+        if (humanPlayer.health <= 0) {
+          winner = cpuOpponent;
+        } else if (cpuOpponent.health <= 0) {
+          winner = humanPlayer;
+        }
+
+        if (winner) {
+          gameState = "gameOver";
+          winnerMessage.textContent = `${winner.name} Wins!`;
+          gameOverScreen.classList.remove("hidden");
+          document.getElementById("healthBars").classList.add("hidden");
+          if (animationFrameId) cancelAnimationFrame(animationFrameId);
+        }
+      }
+
+      function gameLoop() {
+        if (gameState !== "playing") return;
+
+        // Обновляем игроков в зависимости от режима игры
+        if (humanPlayer) {
+          if (isMultiplayer) {
+            // В сетевой игре обновляем только локального игрока
+            humanPlayer.update(cpuOpponent);
+
+            // Удаленный игрок не обновляется локально - только через сеть
+            if (cpuOpponent && cpuOpponent.isNetworkPlayer) {
+              // Обновляем только таймеры и анимации для сетевого игрока
+              if (cpuOpponent.attackTimer > 0) {
+                cpuOpponent.attackTimer--;
+                if (cpuOpponent.attackTimer <= 0) {
+                  cpuOpponent.currentAttackType = null;
+                }
+              }
+              if (cpuOpponent.hitStunTimer > 0) {
+                cpuOpponent.hitStunTimer--;
+                if (cpuOpponent.hitStunTimer <= 0) {
+                  cpuOpponent.isHit = false;
+                }
+              }
+              if (cpuOpponent.shootCooldownTimer > 0) {
+                cpuOpponent.shootCooldownTimer--;
+              }
+            }
+          } else {
+            // В одиночном режиме обновляем обоих игроков как обычно
+            humanPlayer.update(cpuOpponent);
+            if (cpuOpponent) {
+              cpuOpponent.update(humanPlayer);
+            }
+          }
+        }
+
+        handleBulletCollisions();
+
+        // Рендеринг
+        ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+        ctx.strokeStyle = "#888";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(0, GROUND_Y);
+        ctx.lineTo(CANVAS_WIDTH, GROUND_Y);
+        ctx.stroke();
+
+        // Рисуем игроков
+        if (humanPlayer) humanPlayer.draw();
+        if (cpuOpponent) cpuOpponent.draw();
+
+        // Рисуем пули
+        bullets.forEach((bullet) => bullet.draw());
+
+        checkGameOver();
+        animationFrameId = requestAnimationFrame(gameLoop);
+      }
+
+      // Navigation functions between screens
+      function showCharacterSelectionScreen() {
+        currentScreen = "character";
+        characterSelectionScreen.classList.remove("hidden");
+        gameModeSelectionScreen.classList.add("hidden");
+        waitingScreen.classList.add("hidden");
+        gameMainContainer.classList.add("hidden");
+        gameUiContainer.classList.remove("hidden");
+        document.getElementById("healthBars").classList.add("hidden");
+      }
+
+      function showGameModeSelectionScreen() {
+        currentScreen = "gamemode";
+        characterSelectionScreen.classList.add("hidden");
+        gameModeSelectionScreen.classList.remove("hidden");
+        waitingScreen.classList.add("hidden");
+        gameMainContainer.classList.add("hidden");
+        gameUiContainer.classList.remove("hidden");
+
+        // Update selected fighter display
+        const selectedFighterName = document.getElementById(
+          "selectedFighterName"
+        );
+        selectedFighterName.textContent = fighters[selectedFighter].name;
+      }
+
+      function showWaitingScreen(mode) {
+        currentScreen = "waiting";
+        characterSelectionScreen.classList.add("hidden");
+        gameModeSelectionScreen.classList.add("hidden");
+        waitingScreen.classList.remove("hidden");
+        gameMainContainer.classList.add("hidden");
+        gameUiContainer.classList.remove("hidden");
+
+        const waitingTitle = document.getElementById("waitingTitle");
+        const waitingSubtitle = document.getElementById("waitingSubtitle");
+        const queueStatus = document.getElementById("queueStatus");
+        const roomStatus = document.getElementById("roomStatus");
+
+        if (mode === "queue") {
+          waitingTitle.textContent = "Finding Match...";
+          waitingSubtitle.textContent = `Playing as ${fighters[selectedFighter].name}`;
+          queueStatus.style.display = "block";
+          roomStatus.style.display = "none";
+        } else if (mode === "room") {
+          waitingTitle.textContent = "Private Room";
+          waitingSubtitle.textContent = `Playing as ${fighters[selectedFighter].name}`;
+          queueStatus.style.display = "none";
+          roomStatus.style.display = "block";
+        }
+      }
+
+      function showGameScreen() {
+        currentScreen = "game";
+        characterSelectionScreen.classList.add("hidden");
+        gameModeSelectionScreen.classList.add("hidden");
+        waitingScreen.classList.add("hidden");
+        gameUiContainer.classList.add("hidden");
+        gameMainContainer.classList.remove("hidden");
+        document.getElementById("healthBars").classList.remove("hidden");
+      }
+
+      function showFighterSelectionScreen() {
+        showCharacterSelectionScreen();
+        gameState = "selecting";
+        gameOverScreen.classList.add("hidden");
+      }
+
+      // Event listeners for character selection
+      document.getElementById("selectDowand").addEventListener("click", () => {
+        selectedFighter = "dowand";
+        showGameModeSelectionScreen();
+      });
+
+      document.getElementById("selectEwon").addEventListener("click", () => {
+        selectedFighter = "ewon";
+        showGameModeSelectionScreen();
+      });
+
+      // Event listeners for game mode selection
+      document.getElementById("quickMatchBtn").addEventListener("click", () => {
+        if (!selectedFighter) return;
+
+        // Send fighter selection to server before joining queue
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          sendToServer({
+            type: "selectFighter",
+            fighter: selectedFighter,
+          });
+        }
+
+        showWaitingScreen("queue");
+        joinQueue();
+      });
+
+      document.getElementById("createRoomBtn").addEventListener("click", () => {
+        if (!selectedFighter) return;
+        showWaitingScreen("room");
+        createRoom();
+      });
+
+      document.getElementById("joinRoomBtn").addEventListener("click", () => {
+        if (!selectedFighter) return;
+        const roomIdInput = document.getElementById("roomIdInput").value;
+        if (roomIdInput) {
+          showWaitingScreen("room");
+          joinRoom(roomIdInput);
+        }
+      });
+
+      document
+        .getElementById("backToCharacterBtn")
+        .addEventListener("click", () => {
+          showCharacterSelectionScreen();
+        });
+
+      // Event listeners for waiting screen
+      document.getElementById("readyBtn").addEventListener("click", () => {
+        if (!selectedFighter) return;
+
+        // Send fighter selection to server
+        sendToServer({
+          type: "selectFighter",
+          fighter: selectedFighter,
+        });
+
+        setReady();
+        document.getElementById("readyBtn").disabled = true;
+        document.getElementById("readyBtn").textContent = "Waiting...";
+      });
+
+      document.getElementById("cancelBtn").addEventListener("click", () => {
+        if (inQueue) {
+          leaveQueue();
+        } else if (roomId) {
+          roomId = null;
+          document.getElementById("readyBtn").style.display = "none";
+        }
+        showGameModeSelectionScreen();
+      });
+
+      playAgainButton.addEventListener("click", () => {
+        // Скрываем экран окончания игры
+        gameOverScreen.classList.add("hidden");
+
+        // Сбрасываем состояние мультиплеера
+        if (isMultiplayer) {
+          // Отправляем сообщение серверу о выходе из комнаты
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            sendToServer({ type: "leaveRoom" });
+          }
+
+          isMultiplayer = false;
+          roomId = null;
+
+          // Сбрасываем состояние игроков
+          humanPlayer = null;
+          cpuOpponent = null;
+          bullets = [];
+
+          // Сбрасываем состояние игры
+          gameState = "selecting";
+
+          // Отменяем анимацию если она была запущена
+          if (animationFrameId) {
+            cancelAnimationFrame(animationFrameId);
+            animationFrameId = null;
+          }
+        }
+
+        showCharacterSelectionScreen();
+      });
+
+      // Обновление UI сети
+      function updateNetworkUI() {
+        const connectionStatus = document.getElementById("connectionStatus");
+        const pingInfo = document.getElementById("pingInfo");
+        const pingValue = document.getElementById("pingValue");
+
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          connectionStatus.textContent = "Connected";
+          connectionStatus.style.color = "#00ff00";
+          pingInfo.style.display = "block";
+          pingValue.textContent = latency;
+        } else {
+          connectionStatus.textContent = "Disconnected";
+          connectionStatus.style.color = "#ff0000";
+          pingInfo.style.display = "none";
+        }
+      }
+
+      // Обновляем UI каждую секунду
+      setInterval(updateNetworkUI, 1000);
+
+      window.addEventListener("keydown", (e) => {
+        keys[e.code] = true;
+        if (
+          gameState === "playing" &&
+          humanPlayer &&
+          humanPlayer.controls &&
+          Object.values(humanPlayer.controls).includes(e.code)
+        )
+          e.preventDefault();
+      });
+      window.addEventListener("keyup", (e) => {
+        keys[e.code] = false;
+      });
+
+      function setupDynamicTouchControls() {
+        const tc = document.getElementById("touchControlsContainer");
+        if (
+          !humanPlayer ||
+          !humanPlayer.controls ||
+          Object.keys(humanPlayer.controls).length === 0
+        ) {
+          tc.innerHTML = "";
+          tc.classList.add("hidden");
+          return;
+        }
+        const touchLayoutHTML = `<div class="touch-controls-group"><div class="touch-movement"><button class="touch-button" id="tc_Left">&#x2190;</button><button class="touch-button" id="tc_Right">&#x2192;</button><button class="touch-button" id="tc_Jump">&#x2191;</button></div><div class="touch-actions"><button class="touch-button" id="tc_Block">BLK</button><button class="touch-button" id="tc_Arm">ARM</button><button class="touch-button" id="tc_Leg">LEG</button><button class="touch-button" id="tc_Shoot">SHT</button></div></div>`;
+        tc.innerHTML = touchLayoutHTML;
+        tc.classList.remove("hidden");
+        const touchMap = {
+          tc_Left: "left",
+          tc_Right: "right",
+          tc_Jump: "jump",
+          tc_Block: "block",
+          tc_Arm: "armStrike",
+          tc_Leg: "legStrike",
+          tc_Shoot: "shoot",
+        };
+        Object.keys(touchMap).forEach((btnId) => {
+          const btn = document.getElementById(btnId);
+          if (btn) {
+            const kCode = humanPlayer.controls[touchMap[btnId]];
+            btn.addEventListener(
+              "touchstart",
+              (e) => {
+                e.preventDefault();
+                keys[kCode] = true;
+                btn.style.backgroundColor = "rgba(224,62,0,0.9)";
+              },
+              { passive: false }
+            );
+            btn.addEventListener(
+              "touchend",
+              (e) => {
+                e.preventDefault();
+                keys[kCode] = false;
+                btn.style.backgroundColor = "rgba(255,69,0,0.7)";
+              },
+              { passive: false }
+            );
+          }
+        });
+      }
+
+      function handlePageLoad() {
+        // Подключаемся к WebSocket серверу
+        connectToServer();
+
+        // Сначала загружаем спрайты
+        loadSprites()
+          .then(() => {
+            console.log("Спрайты загружены!");
+            showFighterSelectionScreen(); // Показываем экран выбора персонажа только после загрузки спрайтов
+          })
+          .catch((error) => {
+            console.error("Ошибка загрузки спрайтов:", error);
+            showFighterSelectionScreen(); // Показываем экран даже если спрайты не загрузились
+          });
+
+        // Setup canvas initial dimensions for responsive scaling.
+        const gameContainer = document.getElementById("gameContainer");
+        const containerWidth = Math.min(window.innerWidth * 0.9, 800);
+        const scale = containerWidth / CANVAS_WIDTH;
+        gameContainer.style.width = CANVAS_WIDTH * scale + "px";
+        gameContainer.style.height = CANVAS_HEIGHT * scale + "px";
+
+        // UI container can have its own sizing logic if needed
+        const uiCont = document.getElementById("uiContainer");
+        uiCont.style.maxWidth = "600px"; // Example max width for UI
+        uiCont.style.width = "90%";
+      }
+
+      window.addEventListener("resize", () => {
+        const c = document.getElementById("gameContainer");
+        if (c.classList.contains("hidden") && gameState !== "playing") return; // Don't resize if game not active
+
+        const containerWidth = Math.min(window.innerWidth * 0.9, 800);
+        const scale = containerWidth / CANVAS_WIDTH;
+        c.style.width = CANVAS_WIDTH * scale + "px";
+        c.style.height = CANVAS_HEIGHT * scale + "px";
+      });
+
+      // Initialize
+      handlePageLoad();
+    </script>
+  </body>
+</html>
