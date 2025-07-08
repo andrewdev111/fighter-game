@@ -604,24 +604,50 @@
 
       // Загрузка спрайтов
       function loadSprites() {
-        return new Promise((resolve) => {
+        return new Promise((resolve, reject) => {
           let loadedCount = 0;
+          let errorCount = 0;
           const totalSprites = 2;
 
           function checkAllLoaded() {
             loadedCount++;
+            console.log(`Спрайт загружен (${loadedCount}/${totalSprites})`);
             if (loadedCount === totalSprites) {
               spritesLoaded = true;
+              console.log("Все спрайты успешно загружены!");
               resolve();
             }
           }
 
+          function handleError(spriteName) {
+            errorCount++;
+            console.warn(`Ошибка загрузки спрайта: ${spriteName}`);
+            if (errorCount + loadedCount === totalSprites) {
+              console.log(
+                "Загрузка спрайтов завершена с ошибками, используем fallback"
+              );
+              resolve(); // Продолжаем даже с ошибками
+            }
+          }
+
+          // Timeout на случай если изображения не загружаются
+          setTimeout(() => {
+            if (loadedCount < totalSprites) {
+              console.warn(
+                "Timeout загрузки спрайтов, используем цветные прямоугольники"
+              );
+              resolve();
+            }
+          }, 5000); // 5 секунд timeout
+
           trampSprite = new Image();
           trampSprite.onload = checkAllLoaded;
+          trampSprite.onerror = () => handleError("tramp.png");
           trampSprite.src = "assets/tramp.png";
 
           maskSprite = new Image();
           maskSprite.onload = checkAllLoaded;
+          maskSprite.onerror = () => handleError("mask.png");
           maskSprite.src = "assets/mask.png";
         });
       }
@@ -981,8 +1007,9 @@
 
       // Обработка попадания атаки ближнего боя
       function handlePlayerHit(message) {
+        const actionType = message.blocked ? "blocked attack from" : "hit by";
         console.log(
-          `Player hit: ${message.attackerId} → ${message.targetId}, damage: ${message.damage}`
+          `Player ${actionType}: ${message.attackerId} → ${message.targetId}, damage: ${message.damage}`
         );
 
         let target = null;
@@ -996,9 +1023,16 @@
           // Обновляем здоровье
           target.health = message.targetHealth;
 
-          // Применяем эффект попадания
-          target.isHit = true;
-          target.hitStunTimer = HIT_STUN_DURATION;
+          // Применяем визуальные эффекты в зависимости от блокировки
+          if (message.blocked) {
+            // Эффект блокировки - короткая вспышка синего
+            target.isBlocking = true;
+            target.hitStunTimer = HIT_STUN_DURATION * 0.3; // Меньше оглушения при блоке
+          } else {
+            // Обычный эффект попадания
+            target.isHit = true;
+            target.hitStunTimer = HIT_STUN_DURATION;
+          }
 
           // Применяем отбрасывание
           target.x += message.knockback;
@@ -1021,8 +1055,11 @@
 
       // Обработка попадания пули
       function handleBulletHit(message) {
+        const actionType = message.blocked
+          ? "blocked bullet from"
+          : "hit by bullet from";
         console.log(
-          `Bullet hit: ${message.shooterId} → ${message.targetId}, damage: ${message.damage}`
+          `Player ${actionType}: ${message.shooterId} → ${message.targetId}, damage: ${message.damage}`
         );
 
         let target = null;
@@ -1036,9 +1073,16 @@
           // Обновляем здоровье
           target.health = message.targetHealth;
 
-          // Применяем эффект попадания
-          target.isHit = true;
-          target.hitStunTimer = HIT_STUN_DURATION;
+          // Применяем визуальные эффекты в зависимости от блокировки
+          if (message.blocked) {
+            // Эффект блокировки пули - короткая вспышка
+            target.isBlocking = true;
+            target.hitStunTimer = HIT_STUN_DURATION * 0.2; // Еще меньше оглушения при блоке пули
+          } else {
+            // Обычный эффект попадания
+            target.isHit = true;
+            target.hitStunTimer = HIT_STUN_DURATION;
+          }
 
           // Применяем отбрасывание
           target.x += message.knockback;
@@ -1183,13 +1227,21 @@
             let spriteToUse = null;
 
             // Выбираем нужный спрайт в зависимости от персонажа
-            if (this.fighterKey === "dowand") {
+            if (
+              this.fighterKey === "dowand" &&
+              trampSprite &&
+              trampSprite.complete
+            ) {
               spriteToUse = trampSprite;
-            } else if (this.fighterKey === "ewon") {
+            } else if (
+              this.fighterKey === "ewon" &&
+              maskSprite &&
+              maskSprite.complete
+            ) {
               spriteToUse = maskSprite;
             }
 
-            if (spriteToUse) {
+            if (spriteToUse && spriteToUse.naturalWidth > 0) {
               ctx.save();
 
               // Применяем эффекты
@@ -1299,6 +1351,35 @@
               ctx.fillStyle = aC;
               ctx.fillRect(aX, aY, aRX, aRY);
             }
+          }
+
+          // Рисуем эффект блокировки
+          if (this.isBlocking) {
+            ctx.save();
+
+            // Создаем эффект "щита" перед игроком
+            const shieldX = this.facingRight
+              ? this.x + this.width
+              : this.x - 15;
+            const shieldY = this.y + this.height * 0.2;
+            const shieldWidth = 15;
+            const shieldHeight = this.height * 0.6;
+
+            // Полупрозрачный синий щит
+            ctx.fillStyle = "rgba(0, 150, 255, 0.7)";
+            ctx.fillRect(shieldX, shieldY, shieldWidth, shieldHeight);
+
+            // Добавляем белую обводку для большей видимости
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.9)";
+            ctx.lineWidth = 2;
+            ctx.strokeRect(shieldX, shieldY, shieldWidth, shieldHeight);
+
+            // Добавляем мерцающий эффект
+            const pulseAlpha = 0.3 + 0.4 * Math.sin(Date.now() * 0.01);
+            ctx.fillStyle = `rgba(200, 220, 255, ${pulseAlpha})`;
+            ctx.fillRect(shieldX, shieldY, shieldWidth, shieldHeight);
+
+            ctx.restore();
           }
         }
 

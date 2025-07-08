@@ -350,25 +350,32 @@ class GameRoom {
     ) {
       // Попадание!
       let actualDamage = damage;
+      let blocked = false;
+
       if (target.blocking) {
-        actualDamage *= 1 - BLOCK_DAMAGE_REDUCTION;
+        // Полная блокировка урона
+        actualDamage = 0;
+        blocked = true;
       }
 
       target.health -= actualDamage;
       if (target.health < 0) target.health = 0;
 
-      // Применяем отбрасывание
+      // Применяем отбрасывание (даже при блоке, но меньше)
+      const knockbackForce = blocked ? KNOCKBACK_FORCE * 0.3 : KNOCKBACK_FORCE;
       if (attacker.facing) {
-        target.x += KNOCKBACK_FORCE;
+        target.x += knockbackForce;
       } else {
-        target.x -= KNOCKBACK_FORCE;
+        target.x -= knockbackForce;
       }
 
       // Ограничиваем позицию в пределах экрана
       target.x = Math.max(0, Math.min(640 - 70, target.x));
 
       console.log(
-        `Player ${attackerId} hit player ${target.id} for ${actualDamage} damage. Health: ${target.health}`
+        `Player ${attackerId} ${blocked ? "blocked by" : "hit"} player ${
+          target.id
+        } for ${actualDamage} damage. Health: ${target.health}`
       );
 
       // Отправляем событие попадания
@@ -378,7 +385,8 @@ class GameRoom {
         targetId: target.id,
         damage: actualDamage,
         targetHealth: target.health,
-        knockback: attacker.facing ? KNOCKBACK_FORCE : -KNOCKBACK_FORCE,
+        blocked: blocked,
+        knockback: attacker.facing ? knockbackForce : -knockbackForce,
       });
     }
   }
@@ -426,21 +434,32 @@ class GameRoom {
           ) {
             // Попадание пули!
             let actualDamage = BULLET_DAMAGE;
+            let blocked = false;
+
             if (target.blocking) {
-              actualDamage *= 1 - BLOCK_DAMAGE_REDUCTION;
+              // Полная блокировка урона от пули
+              actualDamage = 0;
+              blocked = true;
             }
 
             target.health -= actualDamage;
             if (target.health < 0) target.health = 0;
 
-            // Применяем отбрасывание
+            // Применяем отбрасывание (даже при блоке, но меньше)
+            const knockbackForce = blocked
+              ? KNOCKBACK_FORCE * 0.2
+              : KNOCKBACK_FORCE;
             const knockback =
-              bullet.velocityX > 0 ? KNOCKBACK_FORCE : -KNOCKBACK_FORCE;
+              bullet.velocityX > 0 ? knockbackForce : -knockbackForce;
             target.x += knockback;
             target.x = Math.max(0, Math.min(640 - 70, target.x));
 
             console.log(
-              `Bullet ${bullet.id} from player ${playerId} hit player ${targetId} for ${actualDamage} damage. Health: ${target.health}`
+              `Bullet ${bullet.id} from player ${playerId} ${
+                blocked ? "blocked by" : "hit"
+              } player ${targetId} for ${actualDamage} damage. Health: ${
+                target.health
+              }`
             );
 
             // Отправляем событие попадания пули
@@ -450,6 +469,7 @@ class GameRoom {
               targetId: targetId,
               damage: actualDamage,
               targetHealth: target.health,
+              blocked: blocked,
               knockback: knockback,
               bulletId: bullet.id,
             });
