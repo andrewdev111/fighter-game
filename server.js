@@ -18,6 +18,21 @@ const mimeTypes = {
 
 // Создаем HTTP сервер для статических файлов
 const server = http.createServer((req, res) => {
+  // Добавляем CORS заголовки
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader(
+    "Access-Control-Allow-Methods",
+    "GET, POST, PUT, DELETE, OPTIONS"
+  );
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+
+  // Обработка preflight OPTIONS запросов
+  if (req.method === "OPTIONS") {
+    res.writeHead(200);
+    res.end();
+    return;
+  }
+
   const parsedUrl = url.parse(req.url);
   let pathname = parsedUrl.pathname;
 

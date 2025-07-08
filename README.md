@@ -1,200 +1,105 @@
-# Fighting Game - Retro WebSocket Multiplayer
+# Tramp vs Mask - WebSocket Fighting Game
 
-## Overview
+Многопользовательская файтинг-игра в реальном времени с WebSocket подключением.
 
-A real-time multiplayer fighting game with optimized networking for maximum synchronization and minimal latency. The game features a three-step flow for matchmaking.
+## 🎮 Особенности
 
-## Game Flow
+- **Выбор персонажей**: Dowand (🥊) и Ewon (👤)
+- **Игровые режимы**: Быстрая игра и приватные комнаты
+- **Синхронизированный геймплей**: Движения, атаки и пули в реальном времени
+- **Система здоровья**: Визуальные полоски здоровья
+- **Пинг и онлайн статистика**
 
-### 1. Character Selection
+## 🚀 Локальный запуск
 
-- Choose your fighter: **Dowand** (Red) or **Ewon** (Blue)
-- Each character has unique visual design and starting position
-- Must select character before proceeding to game modes
-
-### 2. Game Mode Selection
-
-- **⚡ Quick Match**: Automatic matchmaking with random online players
-  - FIFO queue system for fair matching
-  - Automatic game start when opponent found
-- **🔒 Private Room**: Play with friends using room codes
-  - Create room and share code with friends
-  - Manual ready system for synchronized start
-
-### 3. Waiting/Game Screen
-
-- **Queue Mode**: Real-time search timer and status
-- **Room Mode**: Waiting for opponent and ready confirmation
-- **Game**: Live multiplayer fighting with 60 FPS synchronization
-
-## Features
-
-### Networking
-
-- **60 FPS server tick rate** for smooth real-time gameplay
-- **WebSocket without compression** for speed optimization
-- **Linear interpolation** (0.3 factor) for smooth player movement
-- **Server-side validation** and anti-cheat protection
-- **Heartbeat system** (30s) for connection stability
-- **Automatic reconnection** on disconnect
-- **Real-time ping monitoring** and player count display
-
-### Game Mechanics
-
-- **Two unique fighters** with different stats and positions
-- **Movement**: Arrow keys or WASD for movement and jumping
-- **Combat**: Arm strikes, leg strikes, shooting, and blocking
-- **Health system** with visual health bars
-- **Projectile system** with collision detection
-- **Real-time damage and status effects**
-
-### UI/UX
-
-- **Three-screen progression** for better user experience
-- **Visual character cards** with fighter previews
-- **Real-time connection status** and network information
-- **Queue timer** showing search duration
-- **Modern game UI** with retro pixel art style
-- **Responsive design** for different screen sizes
-
-## Technical Architecture
-
-### Server (Node.js + WebSocket)
-
-```javascript
-// Core game loop runs at 60 FPS
-this.tickInterval = 1000 / 60; // 16.67ms per tick
-
-// Queue system with automatic matching
-tryCreateMatch() {
-  if (gameState.queue.length >= 2) {
-    // Create room and start game automatically
-  }
-}
-```
-
-### Client (HTML5 + Canvas)
-
-```javascript
-// Three-screen navigation
-1. Character Selection → 2. Game Mode → 3. Waiting → 4. Game
-
-// Real-time networking with interpolation
-function updateNetworkPlayers(message) {
-  // Smooth player movement synchronization
-}
-```
-
-## API Documentation
-
-### WebSocket Messages
-
-#### Client → Server
-
-```json
-// Character selection (step 1)
-{"type": "selectFighter", "fighter": "dowand|ewon"}
-
-// Queue system (step 2a)
-{"type": "joinQueue"}
-{"type": "leaveQueue"}
-
-// Private rooms (step 2b)
-{"type": "createRoom"}
-{"type": "joinRoom", "roomId": number}
-{"type": "ready"}
-
-// Game input
-{"type": "playerInput", "input": {...}, "timestamp": number}
-```
-
-#### Server → Client
-
-```json
-// Connection
-{"type": "connected", "playerId": number}
-
-// Matchmaking
-{"type": "queueJoined", "position": number}
-{"type": "matchFound", "roomId": number, "opponent": number}
-
-// Room management
-{"type": "roomCreated", "roomId": number}
-{"type": "roomJoined", "roomId": number}
-
-// Game states
-{"type": "gameStart", "players": [...]}
-{"type": "gameUpdate", "timestamp": number, "players": [...]}
-```
-
-## Installation & Setup
-
-### Prerequisites
-
-- Node.js 14+
-- Modern web browser with WebSocket support
-
-### Server Setup
+1. Установите зависимости:
 
 ```bash
-# Install dependencies
 npm install
+```
 
-# Start development server
-npm run dev
+2. Запустите сервер:
 
-# Start production server
+```bash
 npm start
 ```
 
-### Client Access
+3. Откройте http://localhost:3000 в браузере
 
-1. Open `http://localhost:3000` in your browser
-2. Select your fighter (Dowand or Ewon)
-3. Choose game mode (Quick Match or Private Room)
-4. Wait for opponent and start fighting!
+## 📦 Деплой на продакшн
 
-## Game Flow Example
+### Сервер на Render
 
-### Quick Match Flow
+1. Создайте аккаунт на [Render.com](https://render.com)
+2. Создайте новый **Web Service**
+3. Подключите ваш GitHub репозиторий
+4. Настройки:
+   - **Build Command**: `npm install`
+   - **Start Command**: `npm start`
+   - **Environment**: Node
+   - **Auto-Deploy**: Включить
 
-```
-Player A: Select Dowand → Quick Match → Queue (5s) → Match Found → Game Start
-Player B: Select Ewon → Quick Match → Queue (2s) → Match Found → Game Start
-```
+### Клиент на Vercel
 
-### Private Room Flow
+1. Создайте аккаунт на [Vercel.com](https://vercel.com)
+2. Импортируйте проект из GitHub
+3. Vercel автоматически определит настройки из `vercel.json`
 
-```
-Player A: Select Dowand → Create Room → Room 1234 → Ready → Waiting...
-Player B: Select Ewon → Join Room 1234 → Ready → Game Start!
-```
+### Настройка URL соединения
 
-## Performance Optimizations
+После деплоя сервера на Render:
 
-- **No WebSocket compression** for minimal latency
-- **60 Hz server updates** for smooth gameplay
-- **Client-side prediction** with server reconciliation
-- **Efficient state synchronization** with delta compression
-- **Connection pooling** and heartbeat monitoring
-- **Automatic cleanup** of disconnected players and empty rooms
+1. Скопируйте URL вашего сервера (например: `your-app-name.onrender.com`)
+2. Откройте `index.html`
+3. Найдите строку:
 
-## Development
-
-### File Structure
-
-```
-├── server.js          # WebSocket game server
-├── index.html         # Game client with three-screen UI
-├── package.json       # Dependencies and scripts
-├── assets/           # Game sprites and images
-└── README.md         # This documentation
+```javascript
+wsUrl = "wss://YOUR_RENDER_APP_NAME.onrender.com";
 ```
 
-### Key Classes
+4. Замените `YOUR_RENDER_APP_NAME` на реальное имя вашего приложения
+5. Сделайте commit и push изменений
 
-- **GameRoom**: Manages multiplayer sessions and game logic
-- **Player**: Handles fighter mechanics and networking
-- **WebSocket Server**: Real-time communication and matchmaking
+## 🎯 Как играть
 
-The game is designed for maximum multiplayer performance with modern web technologies and optimized networking protocols.
+1. **Выберите персонажа**: Dowand или Ewon
+2. **Выберите режим**:
+   - Quick Match - быстрый поиск соперника
+   - Private Room - создание приватной комнаты
+3. **Управление**:
+   - A/D или ←/→ - движение
+   - W или ↑ - прыжок
+   - S или ↓ - блок
+   - SPACE - атака
+   - E - стрельба
+
+## 🛠 Технологии
+
+- **Frontend**: HTML5 Canvas, JavaScript ES6
+- **Backend**: Node.js, WebSocket (ws)
+- **Деплой**: Vercel (клиент) + Render (сервер)
+
+## 📁 Структура проекта
+
+```
+tramp-vs-mask/
+├── index.html          # Клиентская часть
+├── server.js           # WebSocket сервер
+├── package.json        # Зависимости сервера
+├── vercel.json         # Конфигурация Vercel
+├── assets/             # Спрайты персонажей
+│   ├── tramp.png
+│   └── mask.png
+└── README.md
+```
+
+## 🔧 Переменные окружения
+
+Сервер автоматически использует переменную `PORT` от Render.
+
+## 📊 Особенности архитектуры
+
+- **Tick Rate**: 60 FPS серверный цикл
+- **Интерполяция**: Плавные движения клиентов
+- **Авторитетный сервер**: Все коллизии проверяются на сервере
+- **Heartbeat**: Автоматическое переподключение при разрыве соединения

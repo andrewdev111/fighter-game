@@ -128,7 +128,7 @@
       #player2HealthContainer {
         width: 100%;
         max-width: 50px;
-        min-width: 50x;
+        min-width: 50px;
       }
       .health-bar {
         height: 30px;
@@ -136,7 +136,7 @@
         background-color: #555;
         width: 100%;
         max-width: 50px;
-        min-width: 50x;
+        min-width: 50px;
       }
       .health-bar-inner {
         height: 100%;
@@ -647,8 +647,18 @@
 
       // Подключение к WebSocket серверу
       function connectToServer() {
-        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-        const wsUrl = `${protocol}//${window.location.host}`;
+        // Определяем URL сервера в зависимости от среды
+        let wsUrl;
+        if (
+          window.location.hostname === "localhost" ||
+          window.location.hostname === "127.0.0.1"
+        ) {
+          // Локальная разработка
+          wsUrl = "ws://localhost:3000";
+        } else {
+          // Продакшн
+          wsUrl = "wss://fighter-game.onrender.com";
+        }
 
         ws = new WebSocket(wsUrl);
 
