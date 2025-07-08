@@ -91,6 +91,8 @@ class GameRoom {
       fighter: null,
       x: 0,
       y: 0,
+      velocityY: 0,
+      isJumping: false,
       health: 100,
       facing: true,
       attacking: false,
@@ -190,6 +192,9 @@ class GameRoom {
     const deltaTime = now - this.lastUpdate;
     this.lastUpdate = now;
 
+    // Обновляем физику игроков на сервере
+    this.updatePlayerPhysics();
+
     // Обновляем пули перед отправкой состояния
     this.updateBullets();
 
@@ -210,6 +215,8 @@ class GameRoom {
         movement: {
           x: player.x,
           y: player.y,
+          velocityY: player.velocityY,
+          isJumping: player.isJumping,
           facing: player.facing,
         },
         actions: {
@@ -226,6 +233,37 @@ class GameRoom {
     this.broadcast(gameUpdate);
   }
 
+  // Новый метод для обновления физики игроков
+  updatePlayerPhysics() {
+    const GRAVITY = 0.8;
+    const CANVAS_WIDTH = 640;
+    const CANVAS_HEIGHT = 360;
+    const PLAYER_WIDTH = 70;
+    const PLAYER_HEIGHT = 70;
+    const GROUND_Y = CANVAS_HEIGHT - 50;
+
+    for (const [playerId, player] of this.players) {
+      // Применяем гравитацию
+      player.velocityY += GRAVITY;
+      player.y += player.velocityY;
+
+      // Проверяем приземление
+      if (player.y + PLAYER_HEIGHT >= GROUND_Y) {
+        player.y = GROUND_Y - PLAYER_HEIGHT;
+        player.velocityY = 0;
+        player.isJumping = false;
+      }
+
+      // Ограничиваем позицию по горизонтали
+      if (player.x < 0) player.x = 0;
+      if (player.x + PLAYER_WIDTH > CANVAS_WIDTH)
+        player.x = CANVAS_WIDTH - PLAYER_WIDTH;
+
+      // Ограничиваем позицию по вертикали (не улетать вверх за экран)
+      if (player.y < 0) player.y = 0;
+    }
+  }
+
   handlePlayerInput(playerId, input) {
     const player = this.players.get(playerId);
     if (!player) return;
@@ -237,6 +275,8 @@ class GameRoom {
     if (input.movement) {
       player.x = Math.max(0, Math.min(640 - 70, input.movement.x));
       player.y = Math.max(0, Math.min(360 - 70, input.movement.y));
+      player.velocityY = input.movement.velocityY || 0;
+      player.isJumping = input.movement.isJumping || false;
       player.facing = input.movement.facing;
     }
 

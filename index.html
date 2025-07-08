@@ -931,6 +931,11 @@
               humanPlayer.y =
                 humanPlayer.y * (1 - lerpFactor) +
                 playerData.movement.y * lerpFactor;
+
+              // Синхронизируем физику прыжков с сервером
+              humanPlayer.velocityY = playerData.movement.velocityY;
+              humanPlayer.isJumping = playerData.movement.isJumping;
+
               humanPlayer.health = playerData.health;
               humanPlayer.facingRight = playerData.movement.facing;
               humanPlayer.isBlocking = playerData.actions.blocking;
@@ -951,6 +956,11 @@
               cpuOpponent.y =
                 cpuOpponent.y * (1 - lerpFactor) +
                 playerData.movement.y * lerpFactor;
+
+              // Синхронизируем физику прыжков с сервером
+              cpuOpponent.velocityY = playerData.movement.velocityY;
+              cpuOpponent.isJumping = playerData.movement.isJumping;
+
               cpuOpponent.health = playerData.health;
               cpuOpponent.facingRight = playerData.movement.facing;
               cpuOpponent.isBlocking = playerData.actions.blocking;
@@ -1387,16 +1397,19 @@
           if (this.isHuman) this.updateHumanInput(opponent);
           else this.updateCpuAI(opponent);
 
-          this.y += this.velocityY;
-          this.velocityY += GRAVITY;
-          if (this.y + this.height >= GROUND_Y) {
-            this.y = GROUND_Y - this.height;
-            this.velocityY = 0;
-            this.isJumping = false;
+          // В многопользовательском режиме физика обрабатывается сервером
+          if (!isMultiplayer) {
+            this.y += this.velocityY;
+            this.velocityY += GRAVITY;
+            if (this.y + this.height >= GROUND_Y) {
+              this.y = GROUND_Y - this.height;
+              this.velocityY = 0;
+              this.isJumping = false;
+            }
+            if (this.x < 0) this.x = 0;
+            if (this.x + this.width > CANVAS_WIDTH)
+              this.x = CANVAS_WIDTH - this.width;
           }
-          if (this.x < 0) this.x = 0;
-          if (this.x + this.width > CANVAS_WIDTH)
-            this.x = CANVAS_WIDTH - this.width;
 
           if (this.shootCooldownTimer > 0) this.shootCooldownTimer--;
           if (this.currentAttackType && this.attackTimer > 0) {
@@ -1451,6 +1464,8 @@
           const oldState = {
             x: this.x,
             y: this.y,
+            velocityY: this.velocityY,
+            isJumping: this.isJumping,
             facing: this.facingRight,
             blocking: this.isBlocking,
             attacking: this.currentAttackType,
@@ -1507,6 +1522,8 @@
             const newState = {
               x: this.x,
               y: this.y,
+              velocityY: this.velocityY,
+              isJumping: this.isJumping,
               facing: this.facingRight,
               blocking: this.isBlocking,
               attacking: this.currentAttackType,
@@ -1519,6 +1536,8 @@
                 movement: {
                   x: this.x,
                   y: this.y,
+                  velocityY: this.velocityY,
+                  isJumping: this.isJumping,
                   facing: this.facingRight,
                 },
                 actions: {
