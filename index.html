@@ -686,15 +686,16 @@
           wsUrl = "wss://fighter-game.onrender.com";
         }
 
+        console.log(`Connecting to: ${wsUrl}`);
         ws = new WebSocket(wsUrl);
 
         ws.onopen = () => {
           console.log("Подключено к серверу");
-          // Измеряем пинг каждые 5 секунд
-          setInterval(measurePing, 5000);
+          // Уменьшаем частоту измерения пинга для продакшена
+          setInterval(measurePing, 10000); // Каждые 10 секунд вместо 5
           // Запрашиваем статистику онлайн
           getOnlineStats();
-          setInterval(getOnlineStats, 10000); // каждые 10 секунд
+          setInterval(getOnlineStats, 15000); // Каждые 15 секунд вместо 10
         };
 
         ws.onmessage = (event) => {
@@ -919,29 +920,56 @@
           return;
         }
 
+        // Проверяем корректность данных сообщения
+        if (!message || !message.players || !Array.isArray(message.players)) {
+          console.warn("Invalid network update message:", message);
+          return;
+        }
+
         message.players.forEach((playerData) => {
+          // Проверяем корректность данных игрока
+          if (!playerData || typeof playerData.id === "undefined") {
+            console.warn("Invalid player data:", playerData);
+            return;
+          }
+
           if (playerData.id === playerId) {
             // Обновляем локального игрока данными с сервера (для синхронизации)
             if (humanPlayer) {
               // Применяем интерполяцию для плавности
               const lerpFactor = 0.2;
-              humanPlayer.x =
-                humanPlayer.x * (1 - lerpFactor) +
-                playerData.movement.x * lerpFactor;
-              humanPlayer.y =
-                humanPlayer.y * (1 - lerpFactor) +
-                playerData.movement.y * lerpFactor;
+
+              // Проверяем, что координаты валидны
+              if (
+                typeof playerData.x === "number" &&
+                typeof playerData.y === "number"
+              ) {
+                humanPlayer.x =
+                  humanPlayer.x * (1 - lerpFactor) + playerData.x * lerpFactor;
+                humanPlayer.y =
+                  humanPlayer.y * (1 - lerpFactor) + playerData.y * lerpFactor;
+              }
 
               // Синхронизируем физику прыжков с сервером
-              humanPlayer.velocityY = playerData.movement.velocityY;
-              humanPlayer.isJumping = playerData.movement.isJumping;
+              if (typeof playerData.velocityY === "number") {
+                humanPlayer.velocityY = playerData.velocityY;
+              }
+              if (typeof playerData.isJumping === "boolean") {
+                humanPlayer.isJumping = playerData.isJumping;
+              }
 
-              humanPlayer.health = playerData.health;
-              humanPlayer.facingRight = playerData.movement.facing;
-              humanPlayer.isBlocking = playerData.actions.blocking;
+              if (typeof playerData.health === "number") {
+                humanPlayer.health = playerData.health;
+              }
+              if (typeof playerData.facing === "boolean") {
+                humanPlayer.facingRight = playerData.facing;
+              }
+              if (typeof playerData.blocking === "boolean") {
+                humanPlayer.isBlocking = playerData.blocking;
+              }
 
-              if (playerData.actions.attacking) {
-                humanPlayer.currentAttackType = playerData.actions.attacking;
+              if (playerData.attacking) {
+                humanPlayer.currentAttackType = playerData.attacking;
                 humanPlayer.attackTimer = MELEE_ATTACK_DURATION;
               }
             }
@@ -950,23 +978,38 @@
             if (cpuOpponent && cpuOpponent.networkId === playerData.id) {
               // Применяем более агрессивную интерполяцию для удаленного игрока
               const lerpFactor = 0.6;
-              cpuOpponent.x =
-                cpuOpponent.x * (1 - lerpFactor) +
-                playerData.movement.x * lerpFactor;
-              cpuOpponent.y =
-                cpuOpponent.y * (1 - lerpFactor) +
-                playerData.movement.y * lerpFactor;
+
+              // Проверяем, что координаты валидны
+              if (
+                typeof playerData.x === "number" &&
+                typeof playerData.y === "number"
+              ) {
+                cpuOpponent.x =
+                  cpuOpponent.x * (1 - lerpFactor) + playerData.x * lerpFactor;
+                cpuOpponent.y =
+                  cpuOpponent.y * (1 - lerpFactor) + playerData.y * lerpFactor;
+              }
 
               // Синхронизируем физику прыжков с сервером
-              cpuOpponent.velocityY = playerData.movement.velocityY;
-              cpuOpponent.isJumping = playerData.movement.isJumping;
+              if (typeof playerData.velocityY === "number") {
+                cpuOpponent.velocityY = playerData.velocityY;
+              }
+              if (typeof playerData.isJumping === "boolean") {
+                cpuOpponent.isJumping = playerData.isJumping;
+              }
 
-              cpuOpponent.health = playerData.health;
-              cpuOpponent.facingRight = playerData.movement.facing;
-              cpuOpponent.isBlocking = playerData.actions.blocking;
+              if (typeof playerData.health === "number") {
+                cpuOpponent.health = playerData.health;
+              }
+              if (typeof playerData.facing === "boolean") {
+                cpuOpponent.facingRight = playerData.facing;
+              }
+              if (typeof playerData.blocking === "boolean") {
+                cpuOpponent.isBlocking = playerData.blocking;
+              }
 
-              if (playerData.actions.attacking) {
-                cpuOpponent.currentAttackType = playerData.actions.attacking;
+              if (playerData.attacking) {
+                cpuOpponent.currentAttackType = playerData.attacking;
                 cpuOpponent.attackTimer = MELEE_ATTACK_DURATION;
               }
             }
@@ -974,27 +1017,41 @@
         });
 
         // Обновляем пули из серверных данных
-        if (message.bullets) {
-          bullets = message.bullets.map((bulletData) => {
-            const bullet = new Bullet(
-              bulletData.x,
-              bulletData.y,
-              bulletData.velocityX > 0 ? 1 : -1,
-              bulletData.ownerId
-            );
-            bullet.id = bulletData.id;
-            bullet.velocityX = bulletData.velocityX;
-            bullet.velocityY = bulletData.velocityY;
+        if (message.bullets && Array.isArray(message.bullets)) {
+          bullets = message.bullets
+            .map((bulletData) => {
+              // Проверяем корректность данных пули
+              if (
+                !bulletData ||
+                typeof bulletData.x !== "number" ||
+                typeof bulletData.y !== "number"
+              ) {
+                console.warn("Invalid bullet data:", bulletData);
+                return null;
+              }
 
-            // Определяем цвет пули по владельцу
-            if (bulletData.ownerId === playerId) {
-              bullet.color = humanPlayer ? humanPlayer.color : "#ffff00";
-            } else {
-              bullet.color = cpuOpponent ? cpuOpponent.color : "#ff0000";
-            }
+              const bullet = new Bullet(
+                bulletData.x,
+                bulletData.y,
+                1, // direction will be determined by velocity
+                bulletData.ownerId
+              );
+              bullet.id = bulletData.id;
+              // Since server only sends x,y,ownerId, we need to calculate velocity based on position changes
+              // For now, use a default velocity since server simplified bullet data
+              bullet.velocityX = 8; // Default bullet speed, will be corrected by position updates
+              bullet.velocityY = 0;
 
-            return bullet;
-          });
+              // Определяем цвет пули по владельцу
+              if (bulletData.ownerId === playerId) {
+                bullet.color = humanPlayer ? humanPlayer.color : "#ffff00";
+              } else {
+                bullet.color = cpuOpponent ? cpuOpponent.color : "#ff0000";
+              }
+
+              return bullet;
+            })
+            .filter((bullet) => bullet !== null); // Убираем невалидные пули
         }
 
         // Обновляем полоски здоровья только если игроки существуют

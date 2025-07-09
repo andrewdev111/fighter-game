@@ -58,7 +58,16 @@ const server = http.createServer((req, res) => {
 });
 
 // Создаем WebSocket сервер на том же HTTP сервере
-const wss = new WebSocket.Server({ server });
+const wss = new WebSocket.Server({
+  server,
+  // Оптимизации для продакшена
+  perMessageDeflate: {
+    // Сжатие сообщений для экономии трафика
+    threshold: 1024,
+    concurrencyLimit: 10,
+    memLevel: 7,
+  },
+});
 
 // Игровое состояние
 const gameState = {
@@ -69,6 +78,9 @@ const gameState = {
   nextRoomId: 1,
 };
 
+// Определяем настройки в зависимости от среды
+const isProduction = process.env.NODE_ENV === "production" || process.env.PORT;
+
 // Класс комнаты для игры
 class GameRoom {
   constructor(id) {
@@ -76,9 +88,16 @@ class GameRoom {
     this.players = new Map();
     this.gameStarted = false;
     this.lastUpdate = Date.now();
-    this.tickRate = 60; // 60 FPS для плавной игры
+    // Динамический tick rate в зависимости от среды
+    this.tickRate = isProduction ? 30 : 60; // 30 FPS для продакшена, 60 для локальной разработки
     this.tickInterval = 1000 / this.tickRate;
     this.gameLoop = null;
+
+    // Адаптивная оптимизация пинга
+    this.latencyHistory = [];
+    this.avgLatency = 0;
+    this.optimizedTickRate = this.tickRate;
+    this.lastOptimization = Date.now();
   }
 
   addPlayer(playerId, ws) {
@@ -192,41 +211,80 @@ class GameRoom {
     const deltaTime = now - this.lastUpdate;
     this.lastUpdate = now;
 
+    // Адаптивная оптимизация tick rate каждые 10 секунд
+    if (now - this.lastOptimization > 10000 && this.latencyHistory.length > 0) {
+      this.avgLatency =
+        this.latencyHistory.reduce((a, b) => a + b, 0) /
+        this.latencyHistory.length;
+
+      // Оптимизируем tick rate на основе среднего пинга
+      if (this.avgLatency > 200) {
+        this.optimizedTickRate = Math.max(15, this.tickRate - 5); // Снижаем до 15 FPS минимум
+      } else if (this.avgLatency < 100) {
+        this.optimizedTickRate = Math.min(
+          this.tickRate,
+          this.optimizedTickRate + 2
+        ); // Увеличиваем постепенно
+      }
+
+      // Обновляем интервал если tick rate изменился
+      if (this.optimizedTickRate !== this.tickRate) {
+        clearInterval(this.gameLoop);
+        this.tickInterval = 1000 / this.optimizedTickRate;
+        this.gameLoop = setInterval(() => {
+          this.updateGame();
+        }, this.tickInterval);
+
+        console.log(
+          `Room ${this.id}: Optimized tick rate to ${
+            this.optimizedTickRate
+          } FPS (avg latency: ${this.avgLatency.toFixed(2)}ms)`
+        );
+      }
+
+      this.latencyHistory = []; // Очищаем историю
+      this.lastOptimization = now;
+    }
+
     // Обновляем физику игроков на сервере
     this.updatePlayerPhysics();
 
     // Обновляем пули перед отправкой состояния
     this.updateBullets();
 
-    // Собираем все пули от всех игроков
+    // Собираем все пули от всех игроков (только активные)
     let allBullets = [];
     this.players.forEach((player) => {
       if (player.bullets && player.bullets.length > 0) {
-        allBullets = allBullets.concat(player.bullets);
+        // Отправляем только основные свойства пуль для экономии трафика
+        const simplifiedBullets = player.bullets.map((bullet) => ({
+          id: bullet.id,
+          x: Math.round(bullet.x), // Округляем для экономии трафика
+          y: Math.round(bullet.y),
+          ownerId: bullet.ownerId,
+        }));
+        allBullets = allBullets.concat(simplifiedBullets);
       }
     });
 
-    // Собираем состояние всех игроков
+    // Собираем оптимизированное состояние всех игроков
     const gameUpdate = {
       type: "gameUpdate",
       timestamp: now,
       players: Array.from(this.players.values()).map((player) => ({
         id: player.id,
-        movement: {
-          x: player.x,
-          y: player.y,
-          velocityY: player.velocityY,
-          isJumping: player.isJumping,
-          facing: player.facing,
-        },
-        actions: {
-          attacking: player.attacking,
-          blocking: player.blocking,
-        },
+        // Округляем координаты для экономии трафика
+        x: Math.round(player.x),
+        y: Math.round(player.y),
+        velocityY: Math.round(player.velocityY * 10) / 10, // Округляем до 1 знака
+        isJumping: player.isJumping,
+        facing: player.facing,
+        attacking: player.attacking,
+        blocking: player.blocking,
         health: player.health,
         fighter: player.fighter,
       })),
-      bullets: allBullets, // Отправляем все пули отдельно
+      bullets: allBullets,
     };
 
     // Отправляем обновление всем игрокам
@@ -235,7 +293,8 @@ class GameRoom {
 
   // Новый метод для обновления физики игроков
   updatePlayerPhysics() {
-    const GRAVITY = 0.8;
+    // Скорректированная гравитация для 20 FPS (была 0.8 для 60 FPS)
+    const GRAVITY = 1.5; // Увеличиваем для компенсации меньшей частоты обновлений
     const CANVAS_WIDTH = 640;
     const CANVAS_HEIGHT = 360;
     const PLAYER_WIDTH = 70;
@@ -284,7 +343,8 @@ class GameRoom {
       // Обрабатываем атаки на сервере
       if (input.actions.attacking && !player.attacking) {
         player.attacking = input.actions.attacking;
-        player.attackTimer = 30; // MELEE_ATTACK_DURATION
+        // Скорректированный таймер атаки для 20 FPS (было 30 для 60 FPS)
+        player.attackTimer = 10; // ~0.5 секунды при 20 FPS
 
         // Проверяем попадание по другому игроку
         this.checkMeleeHit(playerId, input.actions.attacking);
@@ -315,7 +375,8 @@ class GameRoom {
 
         if (!player.bullets) player.bullets = [];
         player.bullets.push(bullet);
-        player.shootCooldown = 30; // SHOOT_COOLDOWN
+        // Скорректированный кулдаун стрельбы для 20 FPS (было 30 для 60 FPS)
+        player.shootCooldown = 10; // ~0.5 секунды при 20 FPS
 
         console.log(
           `Player ${playerId} shot bullet at ${bullet.x}, ${bullet.y}`
@@ -326,16 +387,17 @@ class GameRoom {
     // Обновляем пули и проверяем коллизии
     this.updateBullets();
 
-    // Немедленно отправляем обновление другим игрокам для минимальной задержки
-    this.broadcast(
-      {
-        type: "playerInput",
-        playerId: playerId,
-        input: input,
-        timestamp: Date.now(),
-      },
-      playerId
-    );
+    // Убираем избыточный broadcast - данные будут отправлены в основном игровом цикле
+    // Это существенно снижает пинг, убирая дублирующие сообщения
+    // this.broadcast(
+    //   {
+    //     type: "playerInput",
+    //     playerId: playerId,
+    //     input: input,
+    //     timestamp: Date.now(),
+    //   },
+    //   playerId
+    // );
   }
 
   // Новый метод для проверки попаданий атак ближнего боя
@@ -444,9 +506,9 @@ class GameRoom {
       for (let i = player.bullets.length - 1; i >= 0; i--) {
         const bullet = player.bullets[i];
 
-        // Двигаем пулю по её траектории
-        bullet.x += bullet.velocityX;
-        bullet.y += bullet.velocityY;
+        // Увеличиваем скорость пуль для компенсации меньшей частоты обновлений (20 FPS вместо 60 FPS)
+        bullet.x += bullet.velocityX * 3; // Умножаем на 3 для компенсации разницы в FPS
+        bullet.y += bullet.velocityY * 3;
 
         // Удаляем пули, вылетевшие за экран
         if (
@@ -534,6 +596,15 @@ class GameRoom {
           player.attacking = false;
         }
       }
+    }
+  }
+
+  // Добавляем метод для сбора статистики пинга
+  addLatencyData(latency) {
+    this.latencyHistory.push(latency);
+    // Ограничиваем размер истории
+    if (this.latencyHistory.length > 20) {
+      this.latencyHistory.shift();
     }
   }
 }
@@ -629,6 +700,16 @@ function handleMessage(playerId, message) {
       break;
 
     case "ping":
+      const latency = Date.now() - message.timestamp;
+
+      // Собираем статистику пинга для оптимизации
+      if (player.roomId) {
+        const room = gameState.rooms.get(player.roomId);
+        if (room) {
+          room.addLatencyData(latency);
+        }
+      }
+
       player.ws.send(
         JSON.stringify({
           type: "pong",
@@ -980,7 +1061,8 @@ function leaveRoom(playerId) {
   console.log(`Player ${playerId} left room and state reset`);
 }
 
-// Heartbeat для проверки соединений
+// Оптимизированный heartbeat для продакшена
+const heartbeatInterval = isProduction ? 30000 : 15000; // 30 сек для продакшена, 15 для локальной разработки
 const heartbeat = setInterval(() => {
   wss.clients.forEach((ws) => {
     if (ws.isAlive === false) {
@@ -989,7 +1071,7 @@ const heartbeat = setInterval(() => {
     ws.isAlive = false;
     ws.ping();
   });
-}, 30000); // Каждые 30 секунд
+}, heartbeatInterval);
 
 // Очистка при завершении
 wss.on("close", () => {
@@ -1000,4 +1082,7 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`WebSocket сервер запущен на порту ${PORT}`);
   console.log(`Откройте http://localhost:${PORT} в браузере`);
+  if (isProduction) {
+    console.log("Продакшен режим: оптимизации для пинга активированы");
+  }
 });
