@@ -670,6 +670,9 @@
       let queueStartTime = 0;
       let queueTimer = null;
       let onlineCount = 0;
+      let lastInputSent = 0;
+      let lastInputData = null;
+      const INPUT_SEND_INTERVAL = 50; // Отправляем данные максимум каждые 50мс (20 FPS)
 
       // Подключение к WebSocket серверу
       function connectToServer() {
@@ -691,11 +694,17 @@
 
         ws.onopen = () => {
           console.log("Подключено к серверу");
-          // Уменьшаем частоту измерения пинга для продакшена
-          setInterval(measurePing, 10000); // Каждые 10 секунд вместо 5
+          // Оптимизируем частоту измерения пинга для продакшена
+          const isProduction =
+            window.location.hostname !== "localhost" &&
+            window.location.hostname !== "127.0.0.1";
+          const pingInterval = isProduction ? 15000 : 5000; // 15 сек в проде, 5 сек локально
+          const statsInterval = isProduction ? 30000 : 10000; // 30 сек в проде, 10 сек локально
+
+          setInterval(measurePing, pingInterval);
           // Запрашиваем статистику онлайн
           getOnlineStats();
-          setInterval(getOnlineStats, 15000); // Каждые 15 секунд вместо 10
+          setInterval(getOnlineStats, statsInterval);
         };
 
         ws.onmessage = (event) => {
@@ -776,7 +785,8 @@
             break;
 
           case "pong":
-            latency = Date.now() - message.timestamp;
+            // Правильно считаем RTT (Round Trip Time)
+            latency = Date.now() - lastPingTime;
             break;
 
           case "queueJoined":
@@ -926,6 +936,8 @@
           return;
         }
 
+        const currentTime = Date.now();
+
         message.players.forEach((playerData) => {
           // Проверяем корректность данных игрока
           if (!playerData || typeof playerData.id === "undefined") {
@@ -934,32 +946,38 @@
           }
 
           if (playerData.id === playerId) {
-            // Обновляем локального игрока данными с сервера (для синхронизации)
+            // Для локального игрока применяем серверную коррекцию только при больших расхождениях
             if (humanPlayer) {
-              // Применяем интерполяцию для плавности
-              const lerpFactor = 0.2;
-
               // Проверяем, что координаты валидны
               if (
                 typeof playerData.x === "number" &&
                 typeof playerData.y === "number"
               ) {
-                humanPlayer.x =
-                  humanPlayer.x * (1 - lerpFactor) + playerData.x * lerpFactor;
-                humanPlayer.y =
-                  humanPlayer.y * (1 - lerpFactor) + playerData.y * lerpFactor;
+                const deltaX = Math.abs(humanPlayer.x - playerData.x);
+                const deltaY = Math.abs(humanPlayer.y - playerData.y);
+
+                // Если расхождение слишком большое, корректируем
+                if (deltaX > 20 || deltaY > 20) {
+                  // Плавная коррекция только при больших расхождениях
+                  const correctionFactor = Math.min(0.3, latency / 1000);
+                  humanPlayer.x =
+                    humanPlayer.x * (1 - correctionFactor) +
+                    playerData.x * correctionFactor;
+                  humanPlayer.y =
+                    humanPlayer.y * (1 - correctionFactor) +
+                    playerData.y * correctionFactor;
+                }
               }
 
-              // Синхронизируем физику прыжков с сервером
+              // Синхронизируем состояние с сервером
+              if (typeof playerData.health === "number") {
+                humanPlayer.health = playerData.health;
+              }
               if (typeof playerData.velocityY === "number") {
                 humanPlayer.velocityY = playerData.velocityY;
               }
               if (typeof playerData.isJumping === "boolean") {
                 humanPlayer.isJumping = playerData.isJumping;
-              }
-
-              if (typeof playerData.health === "number") {
-                humanPlayer.health = playerData.health;
               }
               if (typeof playerData.facing === "boolean") {
                 humanPlayer.facingRight = playerData.facing;
@@ -974,32 +992,76 @@
               }
             }
           } else {
-            // Обновляем удаленного игрока
+            // Обновляем удаленного игрока с улучшенной интерполяцией
             if (cpuOpponent && cpuOpponent.networkId === playerData.id) {
-              // Применяем более агрессивную интерполяцию для удаленного игрока
-              const lerpFactor = 0.6;
-
               // Проверяем, что координаты валидны
               if (
                 typeof playerData.x === "number" &&
                 typeof playerData.y === "number"
               ) {
-                cpuOpponent.x =
-                  cpuOpponent.x * (1 - lerpFactor) + playerData.x * lerpFactor;
-                cpuOpponent.y =
-                  cpuOpponent.y * (1 - lerpFactor) + playerData.y * lerpFactor;
+                // Сохраняем предыдущие позиции для расчета скорости
+                if (!cpuOpponent.lastNetworkUpdate) {
+                  cpuOpponent.lastNetworkUpdate = {
+                    x: cpuOpponent.x,
+                    y: cpuOpponent.y,
+                    time: currentTime,
+                  };
+                }
+
+                const timeDelta =
+                  currentTime - cpuOpponent.lastNetworkUpdate.time;
+
+                // Рассчитываем скорость движения для предиктивной интерполяции
+                if (timeDelta > 0 && timeDelta < 1000) {
+                  // Игнорируем слишком большие дельты
+                  const velocityX =
+                    (playerData.x - cpuOpponent.lastNetworkUpdate.x) /
+                    timeDelta;
+                  const velocityY =
+                    (playerData.y - cpuOpponent.lastNetworkUpdate.y) /
+                    timeDelta;
+
+                  // Предиктивное движение с учетом пинга
+                  const predictedX = playerData.x + velocityX * (latency / 2);
+                  const predictedY = playerData.y + velocityY * (latency / 2);
+
+                  // Адаптивная интерполяция в зависимости от пинга
+                  let lerpFactor = Math.min(
+                    0.15,
+                    Math.max(0.05, 1.0 / (1 + latency / 100))
+                  );
+
+                  // Если игрок быстро движется, увеличиваем скорость интерполяции
+                  const speed = Math.sqrt(
+                    velocityX * velocityX + velocityY * velocityY
+                  );
+                  if (speed > 0.1) {
+                    lerpFactor = Math.min(0.25, lerpFactor * 1.5);
+                  }
+
+                  cpuOpponent.x =
+                    cpuOpponent.x * (1 - lerpFactor) + predictedX * lerpFactor;
+                  cpuOpponent.y =
+                    cpuOpponent.y * (1 - lerpFactor) + predictedY * lerpFactor;
+                }
+
+                // Обновляем данные для следующего расчета
+                cpuOpponent.lastNetworkUpdate = {
+                  x: playerData.x,
+                  y: playerData.y,
+                  time: currentTime,
+                };
               }
 
-              // Синхронизируем физику прыжков с сервером
+              // Синхронизируем остальные данные
+              if (typeof playerData.health === "number") {
+                cpuOpponent.health = playerData.health;
+              }
               if (typeof playerData.velocityY === "number") {
                 cpuOpponent.velocityY = playerData.velocityY;
               }
               if (typeof playerData.isJumping === "boolean") {
                 cpuOpponent.isJumping = playerData.isJumping;
-              }
-
-              if (typeof playerData.health === "number") {
-                cpuOpponent.health = playerData.health;
               }
               if (typeof playerData.facing === "boolean") {
                 cpuOpponent.facingRight = playerData.facing;
@@ -1016,7 +1078,7 @@
           }
         });
 
-        // Обновляем пули из серверных данных
+        // Обновляем пули из серверных данных с улучшенной интерполяцией
         if (message.bullets && Array.isArray(message.bullets)) {
           bullets = message.bullets
             .map((bulletData) => {
@@ -1037,9 +1099,7 @@
                 bulletData.ownerId
               );
               bullet.id = bulletData.id;
-              // Since server only sends x,y,ownerId, we need to calculate velocity based on position changes
-              // For now, use a default velocity since server simplified bullet data
-              bullet.velocityX = 8; // Default bullet speed, will be corrected by position updates
+              bullet.velocityX = 8; // Default bullet speed
               bullet.velocityY = 0;
 
               // Определяем цвет пули по владельцу
@@ -1051,7 +1111,7 @@
 
               return bullet;
             })
-            .filter((bullet) => bullet !== null); // Убираем невалидные пули
+            .filter((bullet) => bullet !== null);
         }
 
         // Обновляем полоски здоровья только если игроки существуют
@@ -1587,9 +1647,21 @@
               health: this.health,
             };
 
-            // Проверяем, изменилось ли состояние
-            if (JSON.stringify(oldState) !== JSON.stringify(newState)) {
-              sendPlayerInput({
+            const currentTime = Date.now();
+            const stateChanged =
+              JSON.stringify(oldState) !== JSON.stringify(newState);
+            const timeToSend =
+              currentTime - lastInputSent >= INPUT_SEND_INTERVAL;
+
+            // Отправляем данные если состояние изменилось и прошло достаточно времени,
+            // или если это критическое изменение (атака, блок, прыжок)
+            const criticalChange =
+              newState.attacking !== oldState.attacking ||
+              newState.blocking !== oldState.blocking ||
+              newState.isJumping !== oldState.isJumping;
+
+            if (stateChanged && (timeToSend || criticalChange)) {
+              const inputData = {
                 movement: {
                   x: this.x,
                   y: this.y,
@@ -1602,25 +1674,21 @@
                   blocking: this.isBlocking,
                 },
                 health: this.health,
-              });
+              };
+
+              // Проверяем, отличаются ли данные от последних отправленных
+              if (JSON.stringify(inputData) !== JSON.stringify(lastInputData)) {
+                sendPlayerInput(inputData);
+                lastInputSent = currentTime;
+                lastInputData = JSON.parse(JSON.stringify(inputData)); // Deep copy
+              }
             }
           }
         }
         updateCpuAI(opponent) {
-          // Если это сетевой игрок, обновляем его состояние из сети
+          // Если это сетевой игрок, не применяем ИИ - его состояние обновляется через updateNetworkPlayers
           if (this.isNetworkPlayer && networkPlayers.has(this.networkId)) {
-            const networkData = networkPlayers.get(this.networkId);
-
-            // Интерполяция позиции для плавности
-            const lerpFactor = 0.3; // Коэффициент интерполяции
-            this.x = this.x + (networkData.x - this.x) * lerpFactor;
-            this.y = this.y + (networkData.y - this.y) * lerpFactor;
-            this.facingRight = networkData.facing;
-            this.isBlocking = networkData.blocking;
-            this.currentAttackType = networkData.attacking;
-            this.health = networkData.health;
-
-            return; // Выходим, не выполняя ИИ
+            return; // Выходим, не выполняя ИИ или интерполяцию
           }
 
           // Оригинальная логика ИИ для одиночной игры
