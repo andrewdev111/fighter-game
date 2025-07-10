@@ -584,7 +584,7 @@
       const PLAYER_HEIGHT = 70;
       const PLAYER_SPEED = 4;
       const JUMP_FORCE = 13;
-      const GRAVITY = 0.7;
+      const GRAVITY = 1.5;
       const MAX_HEALTH = 100;
       const ARM_STRIKE_DAMAGE = 10;
       const ARM_STRIKE_RANGE_X = 50;
@@ -1033,7 +1033,7 @@
           }
 
           if (playerData.id === playerId) {
-            // Для локального игрока применяем серверную коррекцию только при больших расхождениях
+            // Серверная коррекция для локального игрока
             if (humanPlayer) {
               // Проверяем, что координаты валидны
               if (
@@ -1043,29 +1043,91 @@
                 const deltaX = Math.abs(humanPlayer.x - playerData.x);
                 const deltaY = Math.abs(humanPlayer.y - playerData.y);
 
-                // Если расхождение слишком большое, корректируем
-                if (deltaX > 20 || deltaY > 20) {
-                  // Плавная коррекция только при больших расхождениях
-                  const correctionFactor = Math.min(0.3, latency / 1000);
+                // Коррекция X-координаты при больших расхождениях
+                if (deltaX > 25) {
+                  const correctionFactor = Math.min(0.4, latency / 1000);
                   humanPlayer.x =
                     humanPlayer.x * (1 - correctionFactor) +
                     playerData.x * correctionFactor;
-                  humanPlayer.y =
-                    humanPlayer.y * (1 - correctionFactor) +
-                    playerData.y * correctionFactor;
+                }
+
+                // Особая обработка Y-координаты и прыжков
+                if (deltaY > 30) {
+                  // Большое расхождение по Y - возможна рассинхронизация прыжка
+                  console.log(
+                    `Y desync detected: local=${humanPlayer.y}, server=${playerData.y}, delta=${deltaY}`
+                  );
+
+                  // Если сервер говорит что игрок на земле, а локально он в воздухе
+                  if (
+                    playerData.y >= GROUND_Y - PLAYER_HEIGHT - 5 &&
+                    humanPlayer.isJumping
+                  ) {
+                    console.log(
+                      "Server says player landed, correcting jump state"
+                    );
+                    humanPlayer.y = GROUND_Y - PLAYER_HEIGHT;
+                    humanPlayer.velocityY = 0;
+                    humanPlayer.isJumping = false;
+                  }
+                  // Если сервер говорит что игрок прыгает, а локально он на земле
+                  else if (
+                    playerData.y < GROUND_Y - PLAYER_HEIGHT - 10 &&
+                    !humanPlayer.isJumping
+                  ) {
+                    console.log(
+                      "Server says player is jumping, correcting position"
+                    );
+                    humanPlayer.y = playerData.y;
+                    humanPlayer.velocityY =
+                      playerData.velocityY || humanPlayer.velocityY;
+                    humanPlayer.isJumping = true;
+                  }
+                  // Обычная коррекция для меньших расхождений
+                  else if (deltaY > 15) {
+                    const yCorrectionFactor = Math.min(0.3, latency / 1000);
+                    humanPlayer.y =
+                      humanPlayer.y * (1 - yCorrectionFactor) +
+                      playerData.y * yCorrectionFactor;
+                  }
                 }
               }
 
-              // Синхронизируем состояние с сервером
+              // Синхронизируем другие критичные состояния
               if (typeof playerData.health === "number") {
                 humanPlayer.health = playerData.health;
               }
+
+              // Мягкая синхронизация velocityY если расхождение большое
               if (typeof playerData.velocityY === "number") {
-                humanPlayer.velocityY = playerData.velocityY;
+                const velocityDelta = Math.abs(
+                  humanPlayer.velocityY - playerData.velocityY
+                );
+                if (velocityDelta > 3) {
+                  humanPlayer.velocityY =
+                    humanPlayer.velocityY * 0.7 + playerData.velocityY * 0.3;
+                }
               }
-              if (typeof playerData.isJumping === "boolean") {
-                humanPlayer.isJumping = playerData.isJumping;
+
+              // Синхронизируем состояние прыжка
+              if (
+                typeof playerData.isJumping === "boolean" &&
+                playerData.isJumping !== humanPlayer.isJumping
+              ) {
+                // Только если есть логическое обоснование для смены состояния
+                if (
+                  playerData.isJumping &&
+                  humanPlayer.y < GROUND_Y - PLAYER_HEIGHT - 5
+                ) {
+                  humanPlayer.isJumping = true;
+                } else if (
+                  !playerData.isJumping &&
+                  humanPlayer.y >= GROUND_Y - PLAYER_HEIGHT - 5
+                ) {
+                  humanPlayer.isJumping = false;
+                }
               }
+
               if (typeof playerData.facing === "boolean") {
                 humanPlayer.facingRight = playerData.facing;
               }
@@ -1100,7 +1162,6 @@
 
                 // Рассчитываем скорость движения для предиктивной интерполяции
                 if (timeDelta > 0 && timeDelta < 1000) {
-                  // Игнорируем слишком большие дельты
                   const velocityX =
                     (playerData.x - cpuOpponent.lastNetworkUpdate.x) /
                     timeDelta;
@@ -1108,50 +1169,63 @@
                     (playerData.y - cpuOpponent.lastNetworkUpdate.y) /
                     timeDelta;
 
-                  // Предиктивное движение с учетом пинга
-                  const predictedX = playerData.x + velocityX * (latency / 2);
-                  const predictedY = playerData.y + velocityY * (latency / 2);
+                  // Определяем тип движения для адаптивной интерполяции
+                  const isLanding =
+                    cpuOpponent.y < playerData.y &&
+                    playerData.y >= GROUND_Y - PLAYER_HEIGHT - 10;
+                  const isJumping =
+                    cpuOpponent.y > playerData.y &&
+                    playerData.y < GROUND_Y - PLAYER_HEIGHT - 10;
+                  const isHorizontalMovement =
+                    Math.abs(velocityX) > Math.abs(velocityY);
 
-                  // Адаптивная интерполяция в зависимости от пинга и качества соединения
-                  let lerpFactor = Math.min(
+                  // Адаптивное предсказание в зависимости от пинга
+                  let predictedX = playerData.x;
+                  let predictedY = playerData.y;
+
+                  if (latency < 150) {
+                    predictedX = playerData.x + velocityX * (latency / 3);
+                    // Для Y-координаты используем предсказание только для плавного движения
+                    if (!isLanding && !isJumping) {
+                      predictedY = playerData.y + velocityY * (latency / 3);
+                    }
+                  }
+
+                  // Адаптивная интерполяция в зависимости от типа движения
+                  let lerpFactorX = Math.min(
                     0.25,
                     Math.max(0.08, 1.0 / (1 + latency / 80))
                   );
+                  let lerpFactorY = lerpFactorX;
 
-                  // Для высокого пинга (>150ms) используем более агрессивную интерполяцию
-                  if (latency > 150) {
-                    lerpFactor = Math.min(0.4, lerpFactor * 1.8);
-
-                    // Более агрессивная экстраполяция для высокого пинга
-                    const extrapolationFactor = Math.min(2.0, latency / 100);
-                    const extrapolatedX =
-                      playerData.x + velocityX * extrapolationFactor;
-                    const extrapolatedY =
-                      playerData.y + velocityY * extrapolationFactor;
-
-                    cpuOpponent.x =
-                      cpuOpponent.x * (1 - lerpFactor) +
-                      extrapolatedX * lerpFactor;
-                    cpuOpponent.y =
-                      cpuOpponent.y * (1 - lerpFactor) +
-                      extrapolatedY * lerpFactor;
-                  } else {
-                    // Обычная предиктивная интерполяция для нормального пинга
-                    // Если игрок быстро движется, увеличиваем скорость интерполяции
-                    const speed = Math.sqrt(
-                      velocityX * velocityX + velocityY * velocityY
-                    );
-                    if (speed > 0.1) {
-                      lerpFactor = Math.min(0.35, lerpFactor * 1.6);
+                  // Для прыжков и приземлений используем более агрессивную интерполяцию
+                  if (isJumping || isLanding) {
+                    lerpFactorY = Math.min(0.5, lerpFactorY * 2.0);
+                    // При приземлении сразу ставим на землю если сервер так говорит
+                    if (
+                      isLanding &&
+                      playerData.y >= GROUND_Y - PLAYER_HEIGHT - 5
+                    ) {
+                      cpuOpponent.y = GROUND_Y - PLAYER_HEIGHT;
+                      cpuOpponent.isJumping = false;
+                    } else {
+                      cpuOpponent.y =
+                        cpuOpponent.y * (1 - lerpFactorY) +
+                        predictedY * lerpFactorY;
                     }
-
-                    cpuOpponent.x =
-                      cpuOpponent.x * (1 - lerpFactor) +
-                      predictedX * lerpFactor;
+                  } else {
                     cpuOpponent.y =
-                      cpuOpponent.y * (1 - lerpFactor) +
-                      predictedY * lerpFactor;
+                      cpuOpponent.y * (1 - lerpFactorY) +
+                      predictedY * lerpFactorY;
                   }
+
+                  // Горизонтальное движение
+                  if (isHorizontalMovement && Math.abs(velocityX) > 0.1) {
+                    lerpFactorX = Math.min(0.35, lerpFactorX * 1.6);
+                  }
+                  cpuOpponent.x =
+                    cpuOpponent.x * (1 - lerpFactorX) +
+                    predictedX * lerpFactorX;
 
                   // Обновляем данные для следующего расчета
                   cpuOpponent.lastNetworkUpdate = {
@@ -1160,13 +1234,6 @@
                     time: currentTime,
                   };
                 }
-
-                // Обновляем данные для следующего расчета
-                cpuOpponent.lastNetworkUpdate = {
-                  x: playerData.x,
-                  y: playerData.y,
-                  time: currentTime,
-                };
               }
 
               // Синхронизируем остальные данные
@@ -1630,8 +1697,10 @@
           if (this.isHuman) this.updateHumanInput(opponent);
           else this.updateCpuAI(opponent);
 
-          // В многопользовательском режиме физика обрабатывается сервером
+          // В многопользовательском режиме физика для локального игрока уже обработана в updateHumanInput
+          // Для удаленного игрока физику не применяем - она синхронизируется через сеть
           if (!isMultiplayer) {
+            // Одиночная игра - применяем физику как обычно
             this.y += this.velocityY;
             this.velocityY += GRAVITY;
             if (this.y + this.height >= GROUND_Y) {
@@ -1639,6 +1708,12 @@
               this.velocityY = 0;
               this.isJumping = false;
             }
+            if (this.x < 0) this.x = 0;
+            if (this.x + this.width > CANVAS_WIDTH)
+              this.x = CANVAS_WIDTH - this.width;
+          } else if (this.isNetworkPlayer) {
+            // Для сетевого игрока не применяем физику, только синхронизируем через updateNetworkPlayers
+            // Но ограничения по границам экрана все равно применяем для безопасности
             if (this.x < 0) this.x = 0;
             if (this.x + this.width > CANVAS_WIDTH)
               this.x = CANVAS_WIDTH - this.width;
@@ -1710,24 +1785,70 @@
             !this.isJumping &&
             !this.currentAttackType &&
             !this.isHit;
-          if (!this.isHit && !this.isBlocking) {
-            if (keys[this.controls.left]) {
-              this.x -= PLAYER_SPEED;
-              this.facingRight = false;
+
+          // В многопользовательском режиме применяем клиентскую предикцию для движения
+          if (isMultiplayer && this.networkId === playerId) {
+            // Клиентская предикция для плавности движения
+            if (!this.isHit && !this.isBlocking) {
+              if (keys[this.controls.left]) {
+                this.x -= PLAYER_SPEED;
+                this.facingRight = false;
+              }
+              if (keys[this.controls.right]) {
+                this.x += PLAYER_SPEED;
+                this.facingRight = true;
+              }
             }
-            if (keys[this.controls.right]) {
-              this.x += PLAYER_SPEED;
-              this.facingRight = true;
+
+            // Клиентская предикция для прыжков
+            if (
+              keys[this.controls.jump] &&
+              !this.isJumping &&
+              !this.isHit &&
+              !this.isBlocking
+            ) {
+              // Мгновенно применяем прыжок локально для отзывчивости
+              this.velocityY = -JUMP_FORCE;
+              this.isJumping = true;
             }
-          }
-          if (
-            keys[this.controls.jump] &&
-            !this.isJumping &&
-            !this.isHit &&
-            !this.isBlocking
-          ) {
-            this.velocityY = -JUMP_FORCE;
-            this.isJumping = true;
+
+            // Локальная физика для Y-координаты (клиентская предикция)
+            this.y += this.velocityY;
+            this.velocityY += GRAVITY;
+
+            // Проверка земли
+            if (this.y + this.height >= GROUND_Y) {
+              this.y = GROUND_Y - this.height;
+              this.velocityY = 0;
+              this.isJumping = false;
+            }
+
+            // Ограничения по X
+            if (this.x < 0) this.x = 0;
+            if (this.x + this.width > CANVAS_WIDTH)
+              this.x = CANVAS_WIDTH - this.width;
+          } else {
+            // Одиночная игра - обычная логика
+            if (!this.isHit && !this.isBlocking) {
+              if (keys[this.controls.left]) {
+                this.x -= PLAYER_SPEED;
+                this.facingRight = false;
+              }
+              if (keys[this.controls.right]) {
+                this.x += PLAYER_SPEED;
+                this.facingRight = true;
+              }
+            }
+
+            if (
+              keys[this.controls.jump] &&
+              !this.isJumping &&
+              !this.isHit &&
+              !this.isBlocking
+            ) {
+              this.velocityY = -JUMP_FORCE;
+              this.isJumping = true;
+            }
           }
 
           if (!this.currentAttackType && !this.isHit && !this.isBlocking) {
