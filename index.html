@@ -666,6 +666,9 @@
       let networkPlayers = new Map();
       let lastPingTime = 0;
       let latency = 0;
+      let pingHistory = [];
+      let smoothedLatency = 0;
+      const PING_HISTORY_SIZE = 10;
       let inQueue = false;
       let queueStartTime = 0;
       let queueTimer = null;
@@ -673,6 +676,17 @@
       let lastInputSent = 0;
       let lastInputData = null;
       const INPUT_SEND_INTERVAL = 50; // Отправляем данные максимум каждые 50мс (20 FPS)
+
+      // Функция для получения адаптивного интервала отправки в зависимости от пинга
+      function getAdaptiveInputInterval() {
+        if (latency > 200) {
+          return 100; // 10 FPS для очень высокого пинга
+        } else if (latency > 100) {
+          return 75; // 13 FPS для высокого пинга
+        } else {
+          return INPUT_SEND_INTERVAL; // 20 FPS для нормального пинга
+        }
+      }
 
       // Подключение к WebSocket серверу
       function connectToServer() {
@@ -685,26 +699,46 @@
           // Локальная разработка
           wsUrl = "ws://localhost:3000";
         } else {
-          // Продакшн
+          // Продакшн - используем WSS для HTTPS сайтов
           wsUrl = "wss://fighter-game.onrender.com";
         }
 
         console.log(`Connecting to: ${wsUrl}`);
         ws = new WebSocket(wsUrl);
 
+        // Увеличиваем timeout для продакшена
+        ws.timeout = 10000;
+
         ws.onopen = () => {
           console.log("Подключено к серверу");
-          // Оптимизируем частоту измерения пинга для продакшена
+
+          // Сразу измеряем первоначальный пинг
+          measurePing();
+
+          // Адаптивные интервалы для продакшена
           const isProduction =
             window.location.hostname !== "localhost" &&
             window.location.hostname !== "127.0.0.1";
-          const pingInterval = isProduction ? 15000 : 5000; // 15 сек в проде, 5 сек локально
-          const statsInterval = isProduction ? 30000 : 10000; // 30 сек в проде, 10 сек локально
 
-          setInterval(measurePing, pingInterval);
+          // Более частое измерение пинга в начале для точной калибровки
+          const initialPingInterval = setInterval(() => {
+            measurePing();
+          }, 1000);
+
+          // Останавливаем частые измерения через 10 секунд
+          setTimeout(() => {
+            clearInterval(initialPingInterval);
+
+            // Переходим на обычные интервалы
+            const pingInterval = isProduction ? 10000 : 5000; // 10 сек в проде, 5 сек локально
+            const statsInterval = isProduction ? 20000 : 10000; // 20 сек в проде, 10 сек локально
+
+            setInterval(measurePing, pingInterval);
+            setInterval(getOnlineStats, statsInterval);
+          }, 10000);
+
           // Запрашиваем статистику онлайн
           getOnlineStats();
-          setInterval(getOnlineStats, statsInterval);
         };
 
         ws.onmessage = (event) => {
@@ -712,15 +746,29 @@
           handleServerMessage(message);
         };
 
-        ws.onclose = () => {
-          console.log("Соединение с сервером закрыто");
+        ws.onclose = (event) => {
+          console.log(
+            "Соединение с сервером закрыто",
+            event.code,
+            event.reason
+          );
+
           // Сбрасываем состояние очереди
           if (inQueue) {
             stopQueueTimer();
             inQueue = false;
           }
-          // Попытка переподключения через 3 секунды
-          setTimeout(connectToServer, 3000);
+
+          // Адаптивное переподключение в зависимости от причины отключения
+          let reconnectDelay = 3000;
+
+          // Если это не нормальное закрытие, увеличиваем задержку
+          if (event.code !== 1000 && event.code !== 1001) {
+            reconnectDelay = 5000;
+          }
+
+          // Попытка переподключения
+          setTimeout(connectToServer, reconnectDelay);
         };
 
         ws.onerror = (error) => {
@@ -785,8 +833,45 @@
             break;
 
           case "pong":
-            // Правильно считаем RTT (Round Trip Time)
-            latency = Date.now() - lastPingTime;
+            // Правильно считаем RTT (Round Trip Time) с высокой точностью
+            const rawLatency = performance.now() - lastPingTime;
+
+            // Добавляем в историю пинга
+            pingHistory.push(rawLatency);
+            if (pingHistory.length > PING_HISTORY_SIZE) {
+              pingHistory.shift();
+            }
+
+            // Вычисляем сглаженный пинг (медиана + скользящее среднее)
+            if (pingHistory.length >= 3) {
+              // Убираем крайние значения (выбросы)
+              const sortedPings = [...pingHistory].sort((a, b) => a - b);
+              const trimmedPings = sortedPings.slice(1, -1); // Убираем минимум и максимум
+
+              // Среднее значение без выбросов
+              const avgPing =
+                trimmedPings.reduce((sum, ping) => sum + ping, 0) /
+                trimmedPings.length;
+
+              // Сглаживание с предыдущим значением
+              smoothedLatency =
+                smoothedLatency === 0
+                  ? avgPing
+                  : smoothedLatency * 0.7 + avgPing * 0.3;
+              latency = Math.round(smoothedLatency);
+            } else {
+              latency = Math.round(rawLatency);
+              smoothedLatency = latency;
+            }
+
+            // Логируем только если пинг очень высокий
+            if (latency > 200) {
+              console.warn(
+                `High latency detected: ${latency}ms (raw: ${Math.round(
+                  rawLatency
+                )}ms)`
+              );
+            }
             break;
 
           case "queueJoined":
@@ -835,10 +920,12 @@
 
       // Измерение пинга
       function measurePing() {
-        lastPingTime = Date.now();
+        // Используем performance.now() для большей точности
+        lastPingTime = performance.now();
         sendToServer({
           type: "ping",
           timestamp: lastPingTime,
+          clientTime: Date.now(), // Дополнительная временная метка
         });
       }
 
@@ -1025,24 +1112,53 @@
                   const predictedX = playerData.x + velocityX * (latency / 2);
                   const predictedY = playerData.y + velocityY * (latency / 2);
 
-                  // Адаптивная интерполяция в зависимости от пинга
+                  // Адаптивная интерполяция в зависимости от пинга и качества соединения
                   let lerpFactor = Math.min(
-                    0.15,
-                    Math.max(0.05, 1.0 / (1 + latency / 100))
+                    0.25,
+                    Math.max(0.08, 1.0 / (1 + latency / 80))
                   );
 
-                  // Если игрок быстро движется, увеличиваем скорость интерполяции
-                  const speed = Math.sqrt(
-                    velocityX * velocityX + velocityY * velocityY
-                  );
-                  if (speed > 0.1) {
-                    lerpFactor = Math.min(0.25, lerpFactor * 1.5);
+                  // Для высокого пинга (>150ms) используем более агрессивную интерполяцию
+                  if (latency > 150) {
+                    lerpFactor = Math.min(0.4, lerpFactor * 1.8);
+
+                    // Более агрессивная экстраполяция для высокого пинга
+                    const extrapolationFactor = Math.min(2.0, latency / 100);
+                    const extrapolatedX =
+                      playerData.x + velocityX * extrapolationFactor;
+                    const extrapolatedY =
+                      playerData.y + velocityY * extrapolationFactor;
+
+                    cpuOpponent.x =
+                      cpuOpponent.x * (1 - lerpFactor) +
+                      extrapolatedX * lerpFactor;
+                    cpuOpponent.y =
+                      cpuOpponent.y * (1 - lerpFactor) +
+                      extrapolatedY * lerpFactor;
+                  } else {
+                    // Обычная предиктивная интерполяция для нормального пинга
+                    // Если игрок быстро движется, увеличиваем скорость интерполяции
+                    const speed = Math.sqrt(
+                      velocityX * velocityX + velocityY * velocityY
+                    );
+                    if (speed > 0.1) {
+                      lerpFactor = Math.min(0.35, lerpFactor * 1.6);
+                    }
+
+                    cpuOpponent.x =
+                      cpuOpponent.x * (1 - lerpFactor) +
+                      predictedX * lerpFactor;
+                    cpuOpponent.y =
+                      cpuOpponent.y * (1 - lerpFactor) +
+                      predictedY * lerpFactor;
                   }
 
-                  cpuOpponent.x =
-                    cpuOpponent.x * (1 - lerpFactor) + predictedX * lerpFactor;
-                  cpuOpponent.y =
-                    cpuOpponent.y * (1 - lerpFactor) + predictedY * lerpFactor;
+                  // Обновляем данные для следующего расчета
+                  cpuOpponent.lastNetworkUpdate = {
+                    x: playerData.x,
+                    y: playerData.y,
+                    time: currentTime,
+                  };
                 }
 
                 // Обновляем данные для следующего расчета
@@ -1651,7 +1767,7 @@
             const stateChanged =
               JSON.stringify(oldState) !== JSON.stringify(newState);
             const timeToSend =
-              currentTime - lastInputSent >= INPUT_SEND_INTERVAL;
+              currentTime - lastInputSent >= getAdaptiveInputInterval();
 
             // Отправляем данные если состояние изменилось и прошло достаточно времени,
             // или если это критическое изменение (атака, блок, прыжок)
@@ -2235,7 +2351,34 @@
           connectionStatus.textContent = "Connected";
           connectionStatus.style.color = "#00ff00";
           pingInfo.style.display = "block";
+
+          // Цветовая индикация качества соединения
+          let pingColor = "#00ff00"; // Зеленый для хорошего пинга
+          let qualityText = "";
+
+          if (latency > 300) {
+            pingColor = "#ff0000"; // Красный для очень плохого пинга
+            qualityText = " (Poor)";
+          } else if (latency > 150) {
+            pingColor = "#ff8c00"; // Оранжевый для плохого пинга
+            qualityText = " (Fair)";
+          } else if (latency > 80) {
+            pingColor = "#ffff00"; // Желтый для среднего пинга
+            qualityText = " (Good)";
+          } else {
+            qualityText = " (Excellent)";
+          }
+
           pingValue.textContent = latency;
+          pingValue.style.color = pingColor;
+
+          // Добавляем индикатор качества в продакшене
+          const isProduction =
+            window.location.hostname !== "localhost" &&
+            window.location.hostname !== "127.0.0.1";
+          if (isProduction) {
+            pingValue.textContent = latency + qualityText;
+          }
         } else {
           connectionStatus.textContent = "Disconnected";
           connectionStatus.style.color = "#ff0000";
