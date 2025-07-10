@@ -677,14 +677,85 @@
       let lastInputData = null;
       const INPUT_SEND_INTERVAL = 50; // Отправляем данные максимум каждые 50мс (20 FPS)
 
+      // === НОВАЯ СИСТЕМА БУФЕРИЗАЦИИ ДЛЯ ПЛАВНОЙ ИНТЕРПОЛЯЦИИ ===
+
+      // Универсальная функция линейной интерполяции
+      function lerp(start, end, factor) {
+        return start + (end - start) * Math.min(1, Math.max(0, factor));
+      }
+
+      // Буферы позиций для плавной интерполяции
+      const positionBuffers = new Map(); // playerId -> buffer of positions with timestamps
+      const BUFFER_SIZE = 3; // Храним последние 3 позиции
+      const INTERPOLATION_DELAY = 100; // 100ms задержка для буферизации
+
+      // Добавление позиции в буфер
+      function addPositionToBuffer(playerId, position) {
+        if (!positionBuffers.has(playerId)) {
+          positionBuffers.set(playerId, []);
+        }
+
+        const buffer = positionBuffers.get(playerId);
+        const timestamp = Date.now();
+
+        buffer.push({
+          ...position,
+          timestamp: timestamp,
+        });
+
+        // Ограничиваем размер буфера
+        if (buffer.length > BUFFER_SIZE) {
+          buffer.shift();
+        }
+      }
+
+      // Получение интерполированной позиции из буфера
+      function getInterpolatedPosition(playerId) {
+        const buffer = positionBuffers.get(playerId);
+        if (!buffer || buffer.length < 2) {
+          return buffer?.[0] || null;
+        }
+
+        const now = Date.now() - INTERPOLATION_DELAY;
+        const recent = buffer[buffer.length - 1];
+        const older = buffer[buffer.length - 2];
+
+        // Если буфер свежий, используем интерполяцию
+        if (recent.timestamp > now) {
+          const timeDiff = recent.timestamp - older.timestamp;
+          if (timeDiff > 0) {
+            const progress = (now - older.timestamp) / timeDiff;
+            return {
+              x: lerp(older.x, recent.x, progress),
+              y: lerp(older.y, recent.y, progress),
+              velocityY: lerp(
+                older.velocityY || 0,
+                recent.velocityY || 0,
+                progress
+              ),
+              facing: recent.facing,
+              isJumping: recent.isJumping,
+              attacking: recent.attacking,
+              blocking: recent.blocking,
+              health: recent.health,
+            };
+          }
+        }
+
+        return recent;
+      }
+
       // Функция для получения адаптивного интервала отправки в зависимости от пинга
       function getAdaptiveInputInterval() {
-        if (latency > 200) {
-          return 100; // 10 FPS для очень высокого пинга
-        } else if (latency > 100) {
-          return 75; // 13 FPS для высокого пинга
+        // === ОПТИМИЗИРОВАННЫЕ ИНТЕРВАЛЫ ОТПРАВКИ ===
+        if (latency > 250) {
+          return 150; // 6.7 FPS для критического пинга
+        } else if (latency > 150) {
+          return 100; // 10 FPS для высокого пинга
+        } else if (latency > 80) {
+          return 75; // 13.3 FPS для среднего пинга
         } else {
-          return INPUT_SEND_INTERVAL; // 20 FPS для нормального пинга
+          return 50; // 20 FPS для хорошего пинга
         }
       }
 
@@ -1033,237 +1104,146 @@
           }
 
           if (playerData.id === playerId) {
-            // Серверная коррекция для локального игрока
-            if (humanPlayer) {
-              // Проверяем, что координаты валидны
-              if (
-                typeof playerData.x === "number" &&
-                typeof playerData.y === "number"
-              ) {
-                const deltaX = Math.abs(humanPlayer.x - playerData.x);
-                const deltaY = Math.abs(humanPlayer.y - playerData.y);
+            // === УЛУЧШЕННАЯ СЕРВЕРНАЯ КОРРЕКЦИЯ ДЛЯ ЛОКАЛЬНОГО ИГРОКА ===
+            if (
+              humanPlayer &&
+              typeof playerData.x === "number" &&
+              typeof playerData.y === "number"
+            ) {
+              const deltaX = Math.abs(humanPlayer.x - playerData.x);
+              const deltaY = Math.abs(humanPlayer.y - playerData.y);
 
-                // Коррекция X-координаты при больших расхождениях
-                if (deltaX > 25) {
-                  const correctionFactor = Math.min(0.4, latency / 1000);
-                  humanPlayer.x =
-                    humanPlayer.x * (1 - correctionFactor) +
-                    playerData.x * correctionFactor;
-                }
+              // Более мягкая коррекция с учетом пинга
+              if (deltaX > 30) {
+                const correctionFactor = Math.min(0.3, latency / 1500);
+                humanPlayer.x = lerp(
+                  humanPlayer.x,
+                  playerData.x,
+                  correctionFactor
+                );
+              }
 
-                // Особая обработка Y-координаты и прыжков
-                if (deltaY > 30) {
-                  // Большое расхождение по Y - возможна рассинхронизация прыжка
-                  console.log(
-                    `Y desync detected: local=${humanPlayer.y}, server=${playerData.y}, delta=${deltaY}`
+              if (deltaY > 35) {
+                console.log(
+                  `Y desync detected: local=${humanPlayer.y}, server=${playerData.y}, delta=${deltaY}`
+                );
+
+                // Более умная коррекция прыжков
+                if (
+                  playerData.y >= GROUND_Y - PLAYER_HEIGHT - 5 &&
+                  humanPlayer.isJumping
+                ) {
+                  humanPlayer.y = GROUND_Y - PLAYER_HEIGHT;
+                  humanPlayer.velocityY = 0;
+                  humanPlayer.isJumping = false;
+                } else if (
+                  playerData.y < GROUND_Y - PLAYER_HEIGHT - 10 &&
+                  !humanPlayer.isJumping
+                ) {
+                  humanPlayer.y = playerData.y;
+                  humanPlayer.velocityY =
+                    playerData.velocityY || humanPlayer.velocityY;
+                  humanPlayer.isJumping = true;
+                } else if (deltaY > 20) {
+                  const yCorrectionFactor = Math.min(0.2, latency / 1500);
+                  humanPlayer.y = lerp(
+                    humanPlayer.y,
+                    playerData.y,
+                    yCorrectionFactor
                   );
-
-                  // Если сервер говорит что игрок на земле, а локально он в воздухе
-                  if (
-                    playerData.y >= GROUND_Y - PLAYER_HEIGHT - 5 &&
-                    humanPlayer.isJumping
-                  ) {
-                    console.log(
-                      "Server says player landed, correcting jump state"
-                    );
-                    humanPlayer.y = GROUND_Y - PLAYER_HEIGHT;
-                    humanPlayer.velocityY = 0;
-                    humanPlayer.isJumping = false;
-                  }
-                  // Если сервер говорит что игрок прыгает, а локально он на земле
-                  else if (
-                    playerData.y < GROUND_Y - PLAYER_HEIGHT - 10 &&
-                    !humanPlayer.isJumping
-                  ) {
-                    console.log(
-                      "Server says player is jumping, correcting position"
-                    );
-                    humanPlayer.y = playerData.y;
-                    humanPlayer.velocityY =
-                      playerData.velocityY || humanPlayer.velocityY;
-                    humanPlayer.isJumping = true;
-                  }
-                  // Обычная коррекция для меньших расхождений
-                  else if (deltaY > 15) {
-                    const yCorrectionFactor = Math.min(0.3, latency / 1000);
-                    humanPlayer.y =
-                      humanPlayer.y * (1 - yCorrectionFactor) +
-                      playerData.y * yCorrectionFactor;
-                  }
                 }
               }
 
-              // Синхронизируем другие критичные состояния
+              // Синхронизируем критичные состояния
               if (typeof playerData.health === "number") {
                 humanPlayer.health = playerData.health;
               }
-
-              // Мягкая синхронизация velocityY если расхождение большое
               if (typeof playerData.velocityY === "number") {
                 const velocityDelta = Math.abs(
                   humanPlayer.velocityY - playerData.velocityY
                 );
-                if (velocityDelta > 3) {
-                  humanPlayer.velocityY =
-                    humanPlayer.velocityY * 0.7 + playerData.velocityY * 0.3;
+                if (velocityDelta > 4) {
+                  humanPlayer.velocityY = lerp(
+                    humanPlayer.velocityY,
+                    playerData.velocityY,
+                    0.3
+                  );
                 }
               }
-
-              // Синхронизируем состояние прыжка
-              if (
-                typeof playerData.isJumping === "boolean" &&
-                playerData.isJumping !== humanPlayer.isJumping
-              ) {
-                // Только если есть логическое обоснование для смены состояния
-                if (
-                  playerData.isJumping &&
-                  humanPlayer.y < GROUND_Y - PLAYER_HEIGHT - 5
-                ) {
-                  humanPlayer.isJumping = true;
-                } else if (
-                  !playerData.isJumping &&
-                  humanPlayer.y >= GROUND_Y - PLAYER_HEIGHT - 5
-                ) {
-                  humanPlayer.isJumping = false;
-                }
-              }
-
               if (typeof playerData.facing === "boolean") {
                 humanPlayer.facingRight = playerData.facing;
               }
               if (typeof playerData.blocking === "boolean") {
                 humanPlayer.isBlocking = playerData.blocking;
               }
-
               if (playerData.attacking) {
                 humanPlayer.currentAttackType = playerData.attacking;
                 humanPlayer.attackTimer = MELEE_ATTACK_DURATION;
               }
             }
           } else {
-            // Обновляем удаленного игрока с улучшенной интерполяцией
+            // === НОВАЯ ОБРАБОТКА УДАЛЕННЫХ ИГРОКОВ С БУФЕРИЗАЦИЕЙ ===
             if (cpuOpponent && cpuOpponent.networkId === playerData.id) {
-              // Проверяем, что координаты валидны
-              if (
-                typeof playerData.x === "number" &&
-                typeof playerData.y === "number"
-              ) {
-                // Сохраняем предыдущие позиции для расчета скорости
-                if (!cpuOpponent.lastNetworkUpdate) {
-                  cpuOpponent.lastNetworkUpdate = {
-                    x: cpuOpponent.x,
-                    y: cpuOpponent.y,
-                    time: currentTime,
-                  };
+              // Добавляем позицию в буфер
+              addPositionToBuffer(playerData.id, {
+                x: playerData.x,
+                y: playerData.y,
+                velocityY: playerData.velocityY,
+                facing: playerData.facing,
+                isJumping: playerData.isJumping,
+                attacking: playerData.attacking,
+                blocking: playerData.blocking,
+                health: playerData.health,
+              });
+
+              // Получаем интерполированную позицию из буфера
+              const interpolatedPos = getInterpolatedPosition(playerData.id);
+              if (interpolatedPos) {
+                // Плавно применяем интерполированную позицию
+                const lerpFactor = Math.min(0.2, 1.0 / (1 + latency / 100));
+
+                cpuOpponent.x = lerp(
+                  cpuOpponent.x,
+                  interpolatedPos.x,
+                  lerpFactor
+                );
+                cpuOpponent.y = lerp(
+                  cpuOpponent.y,
+                  interpolatedPos.y,
+                  lerpFactor
+                );
+
+                // Обновляем остальные состояния
+                if (typeof interpolatedPos.health === "number") {
+                  cpuOpponent.health = interpolatedPos.health;
                 }
-
-                const timeDelta =
-                  currentTime - cpuOpponent.lastNetworkUpdate.time;
-
-                // Рассчитываем скорость движения для предиктивной интерполяции
-                if (timeDelta > 0 && timeDelta < 1000) {
-                  const velocityX =
-                    (playerData.x - cpuOpponent.lastNetworkUpdate.x) /
-                    timeDelta;
-                  const velocityY =
-                    (playerData.y - cpuOpponent.lastNetworkUpdate.y) /
-                    timeDelta;
-
-                  // Определяем тип движения для адаптивной интерполяции
-                  const isLanding =
-                    cpuOpponent.y < playerData.y &&
-                    playerData.y >= GROUND_Y - PLAYER_HEIGHT - 10;
-                  const isJumping =
-                    cpuOpponent.y > playerData.y &&
-                    playerData.y < GROUND_Y - PLAYER_HEIGHT - 10;
-                  const isHorizontalMovement =
-                    Math.abs(velocityX) > Math.abs(velocityY);
-
-                  // Адаптивное предсказание в зависимости от пинга
-                  let predictedX = playerData.x;
-                  let predictedY = playerData.y;
-
-                  if (latency < 150) {
-                    predictedX = playerData.x + velocityX * (latency / 3);
-                    // Для Y-координаты используем предсказание только для плавного движения
-                    if (!isLanding && !isJumping) {
-                      predictedY = playerData.y + velocityY * (latency / 3);
-                    }
-                  }
-
-                  // Адаптивная интерполяция в зависимости от типа движения
-                  let lerpFactorX = Math.min(
-                    0.25,
-                    Math.max(0.08, 1.0 / (1 + latency / 80))
-                  );
-                  let lerpFactorY = lerpFactorX;
-
-                  // Для прыжков и приземлений используем более агрессивную интерполяцию
-                  if (isJumping || isLanding) {
-                    lerpFactorY = Math.min(0.5, lerpFactorY * 2.0);
-                    // При приземлении сразу ставим на землю если сервер так говорит
-                    if (
-                      isLanding &&
-                      playerData.y >= GROUND_Y - PLAYER_HEIGHT - 5
-                    ) {
-                      cpuOpponent.y = GROUND_Y - PLAYER_HEIGHT;
-                      cpuOpponent.isJumping = false;
-                    } else {
-                      cpuOpponent.y =
-                        cpuOpponent.y * (1 - lerpFactorY) +
-                        predictedY * lerpFactorY;
-                    }
-                  } else {
-                    cpuOpponent.y =
-                      cpuOpponent.y * (1 - lerpFactorY) +
-                      predictedY * lerpFactorY;
-                  }
-
-                  // Горизонтальное движение
-                  if (isHorizontalMovement && Math.abs(velocityX) > 0.1) {
-                    lerpFactorX = Math.min(0.35, lerpFactorX * 1.6);
-                  }
-                  cpuOpponent.x =
-                    cpuOpponent.x * (1 - lerpFactorX) +
-                    predictedX * lerpFactorX;
-
-                  // Обновляем данные для следующего расчета
-                  cpuOpponent.lastNetworkUpdate = {
-                    x: playerData.x,
-                    y: playerData.y,
-                    time: currentTime,
-                  };
+                if (typeof interpolatedPos.facing === "boolean") {
+                  cpuOpponent.facingRight = interpolatedPos.facing;
                 }
-              }
-
-              // Синхронизируем остальные данные
-              if (typeof playerData.health === "number") {
-                cpuOpponent.health = playerData.health;
-              }
-              if (typeof playerData.velocityY === "number") {
-                cpuOpponent.velocityY = playerData.velocityY;
-              }
-              if (typeof playerData.isJumping === "boolean") {
-                cpuOpponent.isJumping = playerData.isJumping;
-              }
-              if (typeof playerData.facing === "boolean") {
-                cpuOpponent.facingRight = playerData.facing;
-              }
-              if (typeof playerData.blocking === "boolean") {
-                cpuOpponent.isBlocking = playerData.blocking;
-              }
-
-              if (playerData.attacking) {
-                cpuOpponent.currentAttackType = playerData.attacking;
-                cpuOpponent.attackTimer = MELEE_ATTACK_DURATION;
+                if (typeof interpolatedPos.blocking === "boolean") {
+                  cpuOpponent.isBlocking = interpolatedPos.blocking;
+                }
+                if (interpolatedPos.attacking) {
+                  cpuOpponent.currentAttackType = interpolatedPos.attacking;
+                  cpuOpponent.attackTimer = MELEE_ATTACK_DURATION;
+                }
+                if (typeof interpolatedPos.isJumping === "boolean") {
+                  cpuOpponent.isJumping = interpolatedPos.isJumping;
+                }
               }
             }
           }
         });
 
-        // Обновляем пули из серверных данных с улучшенной интерполяцией
+        // === УЛУЧШЕННАЯ ОБРАБОТКА ПУЛЬ ОТ СЕРВЕРА ===
         if (message.bullets && Array.isArray(message.bullets)) {
-          bullets = message.bullets
+          // Сохраняем локальные предиктивные пули
+          const localPredictionBullets = bullets.filter(
+            (b) => b.isLocalPrediction && b.ownerId === playerId
+          );
+
+          // Создаем новые пули из серверных данных
+          const serverBullets = message.bullets
             .map((bulletData) => {
               // Проверяем корректность данных пули
               if (
@@ -1278,12 +1258,13 @@
               const bullet = new Bullet(
                 bulletData.x,
                 bulletData.y,
-                1, // direction will be determined by velocity
+                bulletData.velocityX > 0 ? 1 : -1, // Определяем направление по скорости
                 bulletData.ownerId
               );
               bullet.id = bulletData.id;
-              bullet.velocityX = 8; // Default bullet speed
-              bullet.velocityY = 0;
+              bullet.velocityX = bulletData.velocityX || 8;
+              bullet.velocityY = bulletData.velocityY || 0;
+              bullet.isServerAuthoritative = true; // Маркер серверной пули
 
               // Определяем цвет пули по владельцу
               if (bulletData.ownerId === playerId) {
@@ -1295,6 +1276,25 @@
               return bullet;
             })
             .filter((bullet) => bullet !== null);
+
+          // Удаляем локальные предиктивные пули если у нас есть похожие серверные
+          const filteredLocalBullets = localPredictionBullets.filter(
+            (localBullet) => {
+              // Ищем близкую серверную пулю
+              const similarServerBullet = serverBullets.find(
+                (serverBullet) =>
+                  serverBullet.ownerId === localBullet.ownerId &&
+                  Math.abs(serverBullet.x - localBullet.x) < 50 && // В пределах 50 пикселей
+                  Math.abs(serverBullet.y - localBullet.y) < 30
+              );
+
+              // Если нашли похожую серверную пулю, удаляем локальную
+              return !similarServerBullet;
+            }
+          );
+
+          // Объединяем оставшиеся локальные пули с серверными
+          bullets = [...serverBullets, ...filteredLocalBullets];
         }
 
         // Обновляем полоски здоровья только если игроки существуют
@@ -1885,24 +1885,32 @@
             };
 
             const currentTime = Date.now();
-            const stateChanged =
-              JSON.stringify(oldState) !== JSON.stringify(newState);
+
+            // Проверяем значимые изменения
+            const hasMovementChange =
+              Math.abs(newState.x - oldState.x) > 1 ||
+              Math.abs(newState.y - oldState.y) > 2 ||
+              Math.abs(newState.velocityY - oldState.velocityY) > 1;
+
+            const hasStateChange =
+              newState.facing !== oldState.facing ||
+              newState.blocking !== oldState.blocking ||
+              newState.isJumping !== oldState.isJumping ||
+              newState.attacking !== oldState.attacking;
+
             const timeToSend =
               currentTime - lastInputSent >= getAdaptiveInputInterval();
 
-            // Отправляем данные если состояние изменилось и прошло достаточно времени,
-            // или если это критическое изменение (атака, блок, прыжок)
-            const criticalChange =
-              newState.attacking !== oldState.attacking ||
-              newState.blocking !== oldState.blocking ||
-              newState.isJumping !== oldState.isJumping;
-
-            if (stateChanged && (timeToSend || criticalChange)) {
+            // Отправляем данные если есть значимые изменения или критические состояния
+            if (
+              (hasMovementChange || hasStateChange) &&
+              (timeToSend || hasStateChange)
+            ) {
               const inputData = {
                 movement: {
-                  x: this.x,
-                  y: this.y,
-                  velocityY: this.velocityY,
+                  x: Math.round(this.x * 10) / 10, // Округляем для сжатия
+                  y: Math.round(this.y * 10) / 10,
+                  velocityY: Math.round(this.velocityY * 10) / 10,
                   isJumping: this.isJumping,
                   facing: this.facingRight,
                 },
@@ -1913,11 +1921,14 @@
                 health: this.health,
               };
 
-              // Проверяем, отличаются ли данные от последних отправленных
-              if (JSON.stringify(inputData) !== JSON.stringify(lastInputData)) {
+              // Отправляем только если данные действительно отличаются
+              const inputString = JSON.stringify(inputData);
+              const lastInputString = JSON.stringify(lastInputData);
+
+              if (inputString !== lastInputString) {
                 sendPlayerInput(inputData);
                 lastInputSent = currentTime;
-                lastInputData = JSON.parse(JSON.stringify(inputData)); // Deep copy
+                lastInputData = JSON.parse(inputString); // Deep copy
               }
             }
           }
@@ -2059,7 +2070,18 @@
           const dir = this.facingRight ? 1 : -1;
 
           if (isMultiplayer && this.networkId === playerId) {
-            // В многопользовательском режиме отправляем запрос на создание пули на сервер
+            // === МГНОВЕННАЯ СТРЕЛЬБА ДЛЯ ЛОКАЛЬНОГО ИГРОКА ===
+
+            // Сразу создаем пулю локально для мгновенного отклика
+            const bColor = this.fighterKey === "dowand" ? "#ff9999" : "#9999ff";
+            const localBullet = new Bullet(bX, bY, dir, this, bColor);
+            localBullet.ownerId = this.networkId;
+            localBullet.velocityX = BULLET_SPEED * dir;
+            localBullet.velocityY = 0;
+            localBullet.isLocalPrediction = true; // Маркер для локальной предикции
+            bullets.push(localBullet);
+
+            // Отправляем на сервер для синхронизации
             sendPlayerInput({
               newBullet: {
                 x: bX,
@@ -2068,6 +2090,7 @@
                 velocityY: 0,
               },
             });
+
             this.shootCooldownTimer = SHOOT_COOLDOWN;
           } else {
             // В одиночном режиме создаем пулю локально
@@ -2149,16 +2172,33 @@
       }
 
       function handleBulletCollisions() {
-        // В многопользовательском режиме НЕ обновляем позиции пуль - это делает сервер
+        // === УЛУЧШЕННАЯ ОБРАБОТКА ПУЛЬ В МНОГОПОЛЬЗОВАТЕЛЬСКОМ РЕЖИМЕ ===
         if (isMultiplayer) {
-          // Только удаляем пули, вылетевшие за экран (для подстраховки)
+          // Обновляем только локальные предиктивные пули
           for (let i = bullets.length - 1; i >= 0; i--) {
             const bullet = bullets[i];
+
+            // Удаляем пули, вылетевшие за экран
             if (bullet.x + bullet.width < -50 || bullet.x > CANVAS_WIDTH + 50) {
               bullets.splice(i, 1);
+              continue;
+            }
+
+            // Обновляем позицию только для локальных предиктивных пуль
+            if (bullet.isLocalPrediction && bullet.ownerId === playerId) {
+              bullet.update();
+
+              // Удаляем локальные пули после определенного времени
+              // (сервер пришлет официальные пули)
+              if (!bullet.creationTime) {
+                bullet.creationTime = Date.now();
+              } else if (Date.now() - bullet.creationTime > 200) {
+                // Удаляем через 200мс, сервер должен был прислать официальную пулю
+                bullets.splice(i, 1);
+              }
             }
           }
-          return; // Коллизии и движение обрабатывает сервер
+          return; // Коллизии обрабатывает сервер
         }
 
         // В одиночном режиме обрабатываем коллизии и движение как обычно
@@ -2232,6 +2272,27 @@
 
       function gameLoop() {
         if (gameState !== "playing") return;
+
+        // === ПЛАВНАЯ ИНТЕРПОЛЯЦИЯ ДЛЯ УДАЛЕННЫХ ИГРОКОВ ===
+        if (isMultiplayer && cpuOpponent && cpuOpponent.isNetworkPlayer) {
+          // Применяем дополнительную интерполяцию из буфера позиций
+          const interpolatedPos = getInterpolatedPosition(
+            cpuOpponent.networkId
+          );
+          if (interpolatedPos) {
+            const smoothingFactor = Math.min(0.15, 1.0 / (1 + latency / 120));
+            cpuOpponent.x = lerp(
+              cpuOpponent.x,
+              interpolatedPos.x,
+              smoothingFactor
+            );
+            cpuOpponent.y = lerp(
+              cpuOpponent.y,
+              interpolatedPos.y,
+              smoothingFactor
+            );
+          }
+        }
 
         // Обновляем игроков в зависимости от режима игры
         if (humanPlayer) {
