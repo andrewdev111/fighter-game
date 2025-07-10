@@ -235,11 +235,11 @@ class GameRoom {
           this.updateGame();
         }, this.tickInterval);
 
-        console.log(
-          `Room ${this.id}: Optimized tick rate to ${
-            this.optimizedTickRate
-          } FPS (avg latency: ${this.avgLatency.toFixed(2)}ms)`
-        );
+        // console.log(
+        //   `Room ${this.id}: Optimized tick rate to ${
+        //     this.optimizedTickRate
+        //   } FPS (avg latency: ${this.avgLatency.toFixed(2)}ms)`
+        // );
       }
 
       this.latencyHistory = []; // Очищаем историю
@@ -378,9 +378,9 @@ class GameRoom {
         // Скорректированный кулдаун стрельбы для 20 FPS (было 30 для 60 FPS)
         player.shootCooldown = 10; // ~0.5 секунды при 20 FPS
 
-        console.log(
-          `Player ${playerId} shot bullet at ${bullet.x}, ${bullet.y}`
-        );
+        // console.log(
+        //   `Player ${playerId} shot bullet at ${bullet.x}, ${bullet.y}`
+        // );
       }
     }
 
@@ -474,11 +474,11 @@ class GameRoom {
       // Ограничиваем позицию в пределах экрана
       target.x = Math.max(0, Math.min(640 - 70, target.x));
 
-      console.log(
-        `Player ${attackerId} ${blocked ? "blocked by" : "hit"} player ${
-          target.id
-        } for ${actualDamage} damage. Health: ${target.health}`
-      );
+      // console.log(
+      //   `Player ${attackerId} ${blocked ? "blocked by" : "hit"} player ${
+      //     target.id
+      //   } for ${actualDamage} damage. Health: ${target.health}`
+      // );
 
       // Отправляем событие попадания
       this.broadcast({
@@ -518,7 +518,7 @@ class GameRoom {
           bullet.y > 380
         ) {
           player.bullets.splice(i, 1);
-          console.log(`Bullet ${bullet.id} removed (out of bounds)`);
+          // console.log(`Bullet ${bullet.id} removed (out of bounds)`);
           continue;
         }
 
@@ -556,13 +556,13 @@ class GameRoom {
             target.x += knockback;
             target.x = Math.max(0, Math.min(640 - 70, target.x));
 
-            console.log(
-              `Bullet ${bullet.id} from player ${playerId} ${
-                blocked ? "blocked by" : "hit"
-              } player ${targetId} for ${actualDamage} damage. Health: ${
-                target.health
-              }`
-            );
+            // console.log(
+            //   `Bullet ${bullet.id} from player ${playerId} ${
+            //     blocked ? "blocked by" : "hit"
+            //   } player ${targetId} for ${actualDamage} damage. Health: ${
+            //     target.health
+            //   }`
+            // );
 
             // Отправляем событие попадания пули
             this.broadcast({

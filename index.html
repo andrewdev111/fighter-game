@@ -656,6 +656,7 @@
       let humanPlayer, cpuOpponent;
       let bullets = []; // Single bullets array for both players
       let keys = {};
+      let previousKeys = {}; // Отслеживание предыдущего состояния клавиш для "одиночных нажатий"
       let animationFrameId;
 
       // WebSocket клиент
@@ -1803,11 +1804,11 @@
             // Клиентская предикция для прыжков
             if (
               keys[this.controls.jump] &&
+              !previousKeys[this.controls.jump] && // Новое нажатие - клавиша была отпущена в предыдущем кадре
               !this.isJumping &&
               !this.isHit &&
               !this.isBlocking
             ) {
-              // Мгновенно применяем прыжок локально для отзывчивости
               this.velocityY = -JUMP_FORCE;
               this.isJumping = true;
             }
@@ -2347,6 +2348,10 @@
         bullets.forEach((bullet) => bullet.draw());
 
         checkGameOver();
+
+        // Обновляем состояние клавиш для отслеживания одиночных нажатий
+        previousKeys = { ...keys };
+
         animationFrameId = requestAnimationFrame(gameLoop);
       }
 
