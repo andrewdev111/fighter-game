@@ -1124,34 +1124,44 @@
                 );
               }
 
-              if (deltaY > 35) {
-                console.log(
-                  `Y desync detected: local=${humanPlayer.y}, server=${playerData.y}, delta=${deltaY}`
-                );
-
-                // Более умная коррекция прыжков
+              if (deltaY > 5) {
+                // Более умная и плавная коррекция прыжков
                 if (
-                  playerData.y >= GROUND_Y - PLAYER_HEIGHT - 5 &&
+                  playerData.y >= GROUND_Y - PLAYER_HEIGHT &&
                   humanPlayer.isJumping
                 ) {
-                  humanPlayer.y = GROUND_Y - PLAYER_HEIGHT;
-                  humanPlayer.velocityY = 0;
-                  humanPlayer.isJumping = false;
-                } else if (
-                  playerData.y < GROUND_Y - PLAYER_HEIGHT - 10 &&
-                  !humanPlayer.isJumping
-                ) {
-                  humanPlayer.y = playerData.y;
-                  humanPlayer.velocityY =
-                    playerData.velocityY || humanPlayer.velocityY;
-                  humanPlayer.isJumping = true;
-                } else if (deltaY > 20) {
-                  const yCorrectionFactor = Math.min(0.2, latency / 1500);
+                  // Плавная коррекция приземления
+                  humanPlayer.y = lerp(
+                    humanPlayer.y,
+                    GROUND_Y - PLAYER_HEIGHT,
+                    0.25
+                  );
+                  if (
+                    Math.abs(humanPlayer.y - (GROUND_Y - PLAYER_HEIGHT)) < 2
+                  ) {
+                    humanPlayer.y = GROUND_Y - PLAYER_HEIGHT;
+                    humanPlayer.velocityY = 0;
+                    humanPlayer.isJumping = false;
+                  }
+                } else {
+                  // Плавная коррекция в воздухе
+                  const yCorrectionFactor = Math.min(
+                    0.2,
+                    latency / 1000 + 0.05
+                  );
                   humanPlayer.y = lerp(
                     humanPlayer.y,
                     playerData.y,
                     yCorrectionFactor
                   );
+                  // Коррекция скорости для исправления траектории прыжка
+                  if (typeof playerData.velocityY === "number") {
+                    humanPlayer.velocityY = lerp(
+                      humanPlayer.velocityY,
+                      playerData.velocityY,
+                      0.2
+                    );
+                  }
                 }
               }
 
@@ -1804,7 +1814,7 @@
             // Клиентская предикция для прыжков
             if (
               keys[this.controls.jump] &&
-              !previousKeys[this.controls.jump] && // Новое нажатие - клавиша была отпущена в предыдущем кадре
+              !previousKeys[this.controls.jump] &&
               !this.isJumping &&
               !this.isHit &&
               !this.isBlocking
@@ -1843,6 +1853,7 @@
 
             if (
               keys[this.controls.jump] &&
+              !previousKeys[this.controls.jump] && // FIX: одиночное нажатие для прыжка
               !this.isJumping &&
               !this.isHit &&
               !this.isBlocking
