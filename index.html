@@ -1129,28 +1129,24 @@
                   `Y desync detected: local=${humanPlayer.y}, server=${playerData.y}, delta=${deltaY}`
                 );
 
-                // УЛУЧШЕННАЯ коррекция прыжков - менее агрессивная
+                // Более умная коррекция прыжков
                 if (
                   playerData.y >= GROUND_Y - PLAYER_HEIGHT - 5 &&
                   humanPlayer.isJumping
                 ) {
-                  // Игрок должен приземлиться согласно серверу
                   humanPlayer.y = GROUND_Y - PLAYER_HEIGHT;
                   humanPlayer.velocityY = 0;
                   humanPlayer.isJumping = false;
                 } else if (
-                  playerData.y < GROUND_Y - PLAYER_HEIGHT - 15 &&
-                  !humanPlayer.isJumping &&
-                  Math.abs(playerData.velocityY || 0) > 2
+                  playerData.y < GROUND_Y - PLAYER_HEIGHT - 10 &&
+                  !humanPlayer.isJumping
                 ) {
-                  // Игрок должен прыгать согласно серверу, но только если есть значимая velocityY
-                  humanPlayer.y = lerp(humanPlayer.y, playerData.y, 0.4);
+                  humanPlayer.y = playerData.y;
                   humanPlayer.velocityY =
                     playerData.velocityY || humanPlayer.velocityY;
                   humanPlayer.isJumping = true;
-                } else if (deltaY > 25) {
-                  // Обычная коррекция для больших расхождений
-                  const yCorrectionFactor = Math.min(0.15, latency / 2000); // Еще более мягкая коррекция
+                } else if (deltaY > 20) {
+                  const yCorrectionFactor = Math.min(0.2, latency / 1500);
                   humanPlayer.y = lerp(
                     humanPlayer.y,
                     playerData.y,
@@ -1167,13 +1163,11 @@
                 const velocityDelta = Math.abs(
                   humanPlayer.velocityY - playerData.velocityY
                 );
-                // ИСПРАВЛЕНИЕ: Не корректируем velocityY во время прыжка для стабильной высоты
-                if (velocityDelta > 8 && !humanPlayer.isJumping) {
-                  // Корректируем только если игрок не прыгает
+                if (velocityDelta > 4) {
                   humanPlayer.velocityY = lerp(
                     humanPlayer.velocityY,
                     playerData.velocityY,
-                    0.2 // Более мягкая коррекция
+                    0.3
                   );
                 }
               }
@@ -1359,12 +1353,8 @@
           );
 
           // Если игрок прыгал, применяем отбрасывание по Y
-          // ИСПРАВЛЕНИЕ: Не изменяем velocityY во время прыжка для стабильной высоты от пуль
-          if (target.isJumping && target.velocityY < 0) {
-            // Игрок еще поднимается - не изменяем velocityY чтобы сохранить высоту прыжка
-          } else if (target.isJumping && target.velocityY >= 0) {
-            // Игрок уже падает - можно немного ускорить падение
-            target.velocityY += Math.abs(message.knockback) / 4;
+          if (target.isJumping) {
+            target.velocityY = -Math.abs(message.knockback) / 2;
           }
 
           // Обновляем полоски здоровья только если оба игрока существуют
@@ -1819,8 +1809,6 @@
               !this.isHit &&
               !this.isBlocking
             ) {
-              // ДОПОЛНИТЕЛЬНОЕ ИСПРАВЛЕНИЕ: Сбрасываем velocityY перед прыжком для абсолютно стабильной высоты
-              this.velocityY = 0;
               this.velocityY = -JUMP_FORCE;
               this.isJumping = true;
             }
@@ -1853,16 +1841,12 @@
               }
             }
 
-            // ИСПРАВЛЕНИЕ: Добавляем проверку нового нажатия для одиночной игры
             if (
               keys[this.controls.jump] &&
-              !previousKeys[this.controls.jump] && // Новое нажатие - клавиша была отпущена в предыдущем кадре
               !this.isJumping &&
               !this.isHit &&
               !this.isBlocking
             ) {
-              // ДОПОЛНИТЕЛЬНОЕ ИСПРАВЛЕНИЕ: Сбрасываем velocityY перед прыжком для абсолютно стабильной высоты
-              this.velocityY = 0;
               this.velocityY = -JUMP_FORCE;
               this.isJumping = true;
             }
@@ -2015,8 +1999,6 @@
                 }
               }
               if (randomAction > 0.85 && !this.isJumping) {
-                // ДОПОЛНИТЕЛЬНОЕ ИСПРАВЛЕНИЕ: Сбрасываем velocityY перед прыжком для абсолютно стабильной высоты ИИ
-                this.velocityY = 0;
                 this.velocityY = -JUMP_FORCE;
                 this.isJumping = true;
               }
@@ -2133,14 +2115,7 @@
           this.attackTimer = 0; // Interrupt attack if hit
           if (attackerFacingRight) this.x += KNOCKBACK_FORCE;
           else this.x -= KNOCKBACK_FORCE;
-
-          // ИСПРАВЛЕНИЕ: Не изменяем velocityY во время прыжка для стабильной высоты при уроне
-          if (this.isJumping && this.velocityY < 0) {
-            // Игрок еще поднимается - не изменяем velocityY чтобы сохранить высоту прыжка
-          } else if (this.isJumping && this.velocityY >= 0) {
-            // Игрок уже падает - можно немного ускорить падение
-            this.velocityY += KNOCKBACK_FORCE / 4;
-          }
+          if (this.isJumping) this.velocityY = -KNOCKBACK_FORCE / 2;
           updateHealthBars();
         }
         reset() {
