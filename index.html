@@ -1124,42 +1124,31 @@
                 );
               }
 
-              if (deltaY > 5) {
-                // Более умная и плавная коррекция прыжков
+              // Не корректируем Y сразу после прыжка, даем серверу время обработать
+              const justJumped =
+                humanPlayer.lastJumpTime &&
+                Date.now() - humanPlayer.lastJumpTime < latency * 1.5;
+
+              if (deltaY > 20 && !justJumped) {
+                // Плавная коррекция приземления, когда сервер говорит, что мы на земле, а клиент - в прыжке и падает
                 if (
                   playerData.y >= GROUND_Y - PLAYER_HEIGHT &&
-                  humanPlayer.isJumping
+                  humanPlayer.isJumping &&
+                  humanPlayer.velocityY > 0
                 ) {
-                  // Плавная коррекция приземления
                   humanPlayer.y = lerp(
                     humanPlayer.y,
                     GROUND_Y - PLAYER_HEIGHT,
-                    0.25
+                    0.3
                   );
-                  if (
-                    Math.abs(humanPlayer.y - (GROUND_Y - PLAYER_HEIGHT)) < 2
-                  ) {
-                    humanPlayer.y = GROUND_Y - PLAYER_HEIGHT;
-                    humanPlayer.velocityY = 0;
-                    humanPlayer.isJumping = false;
-                  }
-                } else {
-                  // Плавная коррекция в воздухе
-                  const yCorrectionFactor = Math.min(
-                    0.2,
-                    latency / 1000 + 0.05
-                  );
-                  humanPlayer.y = lerp(
-                    humanPlayer.y,
-                    playerData.y,
-                    yCorrectionFactor
-                  );
-                  // Коррекция скорости для исправления траектории прыжка
+                  humanPlayer.velocityY = lerp(humanPlayer.velocityY, 0, 0.3);
+                } else if (humanPlayer.isJumping) {
+                  // Плавная коррекция в воздухе только для скорости
                   if (typeof playerData.velocityY === "number") {
                     humanPlayer.velocityY = lerp(
                       humanPlayer.velocityY,
                       playerData.velocityY,
-                      0.2
+                      0.35
                     );
                   }
                 }
@@ -1520,6 +1509,7 @@
           this.name = fighterDetails.name;
           this.isHuman = isHuman;
           this.fighterKey = fighterKey;
+          this.lastJumpTime = 0; // Для отслеживания времени последнего прыжка
           if (this.isHuman) this.controls = SHARED_CONTROLS;
           else {
             // CPU specific properties
@@ -1821,6 +1811,7 @@
             ) {
               this.velocityY = -JUMP_FORCE;
               this.isJumping = true;
+              this.lastJumpTime = Date.now();
             }
 
             // Локальная физика для Y-координаты (клиентская предикция)
@@ -1860,6 +1851,7 @@
             ) {
               this.velocityY = -JUMP_FORCE;
               this.isJumping = true;
+              this.lastJumpTime = Date.now();
             }
           }
 
