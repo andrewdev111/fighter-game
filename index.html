@@ -1163,11 +1163,28 @@
                 const velocityDelta = Math.abs(
                   humanPlayer.velocityY - playerData.velocityY
                 );
-                if (velocityDelta > 4) {
+
+                // === ОТКЛЮЧАЕМ КОРРЕКЦИЮ VELOCITYY ВО ВРЕМЯ ПРЫЖКОВ ===
+                // Не корректируем velocityY если игрок прыгает или находится в воздухе
+                const exactGroundY = GROUND_Y - humanPlayer.height;
+                const isPlayerOnGround =
+                  Math.abs(humanPlayer.y - exactGroundY) <= 1;
+                const isJumping = humanPlayer.isJumping || !isPlayerOnGround;
+
+                // Корректируем velocityY только если игрок точно на земле и нет прыжка
+                if (
+                  velocityDelta > 8 &&
+                  isPlayerOnGround &&
+                  !isJumping &&
+                  humanPlayer.velocityY >= -0.5
+                ) {
+                  console.log(
+                    `VelocityY correction (grounded only): ${humanPlayer.velocityY} -> ${playerData.velocityY}`
+                  );
                   humanPlayer.velocityY = lerp(
                     humanPlayer.velocityY,
                     playerData.velocityY,
-                    0.3
+                    0.1 // Очень мягкая коррекция только для случаев на земле
                   );
                 }
               }
@@ -1517,6 +1534,7 @@
             this.aiActionTimer = 0;
             this.aiTargetX = null; // For movement
           }
+          this.wasInAir = false; // Инициализируем флаг отладки
         }
         draw() {
           // Рисуем тень
@@ -1698,23 +1716,26 @@
           if (this.isHuman) this.updateHumanInput(opponent);
           else this.updateCpuAI(opponent);
 
-          // В многопользовательском режиме физика для локального игрока уже обработана в updateHumanInput
-          // Для удаленного игрока физику не применяем - она синхронизируется через сеть
-          if (!isMultiplayer) {
-            // Одиночная игра - применяем физику как обычно
+          // === ФИЗИКА ТОЛЬКО ДЛЯ CPU В ОДИНОЧНОЙ ИГРЕ ===
+          // Физика для игрока-человека обрабатывается в updateHumanInput
+          if (!isMultiplayer && !this.isHuman) {
+            // Применяем физику только для CPU в одиночной игре
             this.y += this.velocityY;
             this.velocityY += GRAVITY;
-            if (this.y + this.height >= GROUND_Y) {
-              this.y = GROUND_Y - this.height;
+
+            // Используем ту же точную проверку приземления как у игрока
+            const exactGroundY = GROUND_Y - this.height;
+            if (this.y >= exactGroundY) {
+              this.y = exactGroundY;
               this.velocityY = 0;
               this.isJumping = false;
             }
+
             if (this.x < 0) this.x = 0;
             if (this.x + this.width > CANVAS_WIDTH)
               this.x = CANVAS_WIDTH - this.width;
           } else if (this.isNetworkPlayer) {
-            // Для сетевого игрока не применяем физику, только синхронизируем через updateNetworkPlayers
-            // Но ограничения по границам экрана все равно применяем для безопасности
+            // Для сетевого игрока не применяем физику, только ограничения границ
             if (this.x < 0) this.x = 0;
             if (this.x + this.width > CANVAS_WIDTH)
               this.x = CANVAS_WIDTH - this.width;
@@ -1787,71 +1808,63 @@
             !this.currentAttackType &&
             !this.isHit;
 
-          // В многопользовательском режиме применяем клиентскую предикцию для движения
-          if (isMultiplayer && this.networkId === playerId) {
-            // Клиентская предикция для плавности движения
-            if (!this.isHit && !this.isBlocking) {
-              if (keys[this.controls.left]) {
-                this.x -= PLAYER_SPEED;
-                this.facingRight = false;
-              }
-              if (keys[this.controls.right]) {
-                this.x += PLAYER_SPEED;
-                this.facingRight = true;
-              }
+          // === УНИФИЦИРОВАННАЯ ЛОГИКА ДВИЖЕНИЯ ===
+          if (!this.isHit && !this.isBlocking) {
+            if (keys[this.controls.left]) {
+              this.x -= PLAYER_SPEED;
+              this.facingRight = false;
             }
-
-            // Клиентская предикция для прыжков
-            if (
-              keys[this.controls.jump] &&
-              !previousKeys[this.controls.jump] && // Новое нажатие - клавиша была отпущена в предыдущем кадре
-              !this.isJumping &&
-              !this.isHit &&
-              !this.isBlocking
-            ) {
-              this.velocityY = -JUMP_FORCE;
-              this.isJumping = true;
-            }
-
-            // Локальная физика для Y-координаты (клиентская предикция)
-            this.y += this.velocityY;
-            this.velocityY += GRAVITY;
-
-            // Проверка земли
-            if (this.y + this.height >= GROUND_Y) {
-              this.y = GROUND_Y - this.height;
-              this.velocityY = 0;
-              this.isJumping = false;
-            }
-
-            // Ограничения по X
-            if (this.x < 0) this.x = 0;
-            if (this.x + this.width > CANVAS_WIDTH)
-              this.x = CANVAS_WIDTH - this.width;
-          } else {
-            // Одиночная игра - обычная логика
-            if (!this.isHit && !this.isBlocking) {
-              if (keys[this.controls.left]) {
-                this.x -= PLAYER_SPEED;
-                this.facingRight = false;
-              }
-              if (keys[this.controls.right]) {
-                this.x += PLAYER_SPEED;
-                this.facingRight = true;
-              }
-            }
-
-            if (
-              keys[this.controls.jump] &&
-              !this.isJumping &&
-              !this.isHit &&
-              !this.isBlocking
-            ) {
-              this.velocityY = -JUMP_FORCE;
-              this.isJumping = true;
+            if (keys[this.controls.right]) {
+              this.x += PLAYER_SPEED;
+              this.facingRight = true;
             }
           }
 
+          // === СТРОГАЯ ПРОВЕРКА ЗЕМЛИ ===
+          const exactGroundY = GROUND_Y - this.height;
+          const isOnGround =
+            Math.abs(this.y - exactGroundY) <= 1 && this.velocityY >= -0.5;
+
+          // === УНИФИЦИРОВАННАЯ ЛОГИКА ПРЫЖКОВ ===
+          if (
+            keys[this.controls.jump] &&
+            !previousKeys[this.controls.jump] && // Новое нажатие
+            isOnGround && // Строгая проверка земли
+            !this.isHit &&
+            !this.isBlocking
+          ) {
+            // ПРИНУДИТЕЛЬНЫЙ СБРОС ПОЗИЦИИ И СКОРОСТИ
+            this.y = exactGroundY;
+            this.velocityY = -JUMP_FORCE; // Всегда фиксированная сила
+            this.isJumping = true;
+            console.log(
+              `Jump: y=${this.y}, vY=${this.velocityY}, ground=${exactGroundY}`
+            );
+          }
+
+          // === УНИФИЦИРОВАННАЯ ФИЗИКА ===
+          this.y += this.velocityY;
+          this.velocityY += GRAVITY;
+
+          // === ТОЧНОЕ ПРИЗЕМЛЕНИЕ ===
+          if (this.y >= exactGroundY) {
+            this.y = exactGroundY;
+            this.velocityY = 0;
+            this.isJumping = false;
+            if (this.wasInAir) {
+              console.log(`Landed: y=${this.y}, vY=${this.velocityY}`);
+              this.wasInAir = false;
+            }
+          } else {
+            this.wasInAir = true;
+          }
+
+          // Ограничения по X
+          if (this.x < 0) this.x = 0;
+          if (this.x + this.width > CANVAS_WIDTH)
+            this.x = CANVAS_WIDTH - this.width;
+
+          // === АТАКИ ===
           if (!this.currentAttackType && !this.isHit && !this.isBlocking) {
             if (keys[this.controls.armStrike]) {
               this.currentAttackType = "arm";
@@ -1861,6 +1874,8 @@
               this.attackTimer = MELEE_ATTACK_DURATION;
             }
           }
+
+          // === СТРЕЛЬБА ===
           if (
             keys[this.controls.shoot] &&
             this.shootCooldownTimer <= 0 &&
@@ -1872,7 +1887,7 @@
             this.shootCooldownTimer = SHOOT_COOLDOWN;
           }
 
-          // Отправляем изменения состояния на сервер (только если что-то изменилось)
+          // === СЕТЕВАЯ СИНХРОНИЗАЦИЯ ===
           if (isMultiplayer && this.networkId === playerId) {
             const newState = {
               x: this.x,
@@ -1998,9 +2013,20 @@
                   this.facingRight = true;
                 }
               }
-              if (randomAction > 0.85 && !this.isJumping) {
-                this.velocityY = -JUMP_FORCE;
+              // === ИСПРАВЛЕННАЯ ЛОГИКА ПРЫЖКОВ ДЛЯ CPU ===
+              // Используем ту же строгую проверку земли как у игрока
+              const exactGroundY = GROUND_Y - this.height;
+              const isOnGround =
+                Math.abs(this.y - exactGroundY) <= 1 && this.velocityY >= -0.5;
+
+              if (randomAction > 0.85 && isOnGround) {
+                // ПРИНУДИТЕЛЬНЫЙ СБРОС ПОЗИЦИИ И СКОРОСТИ как у игрока
+                this.y = exactGroundY;
+                this.velocityY = -JUMP_FORCE; // Всегда фиксированная сила
                 this.isJumping = true;
+                console.log(
+                  `CPU Jump: y=${this.y}, vY=${this.velocityY}, ground=${exactGroundY}`
+                );
               }
             }
           }
@@ -2132,6 +2158,7 @@
           this.isBlocking = false;
           this.facingRight = fighters[this.fighterKey].defaultFacingRight;
           this.color = this.baseColor;
+          this.wasInAir = false; // Инициализируем флаг отладки
         }
       }
       class Bullet {
