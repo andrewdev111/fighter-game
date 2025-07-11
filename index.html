@@ -1124,32 +1124,34 @@
                 );
               }
 
-              // --- НОВАЯ ЛОГИКА КОРРЕКЦИИ Y: ПРУЖИНА ---
-              // Создаем "мертвую зону" сразу после прыжка, чтобы дать серверу время на обработку.
-              // В этой зоне мы полностью доверяем клиентской симуляции.
+              // --- НОВАЯ, БОЛЕЕ ПРОСТАЯ ЛОГИКА КОРРЕКЦИИ Y ---
+              // Сохраняем "мертвую зону" после прыжка для плавного старта.
               const justJumped =
                 humanPlayer.lastJumpTime &&
                 Date.now() - humanPlayer.lastJumpTime <
-                  Math.max(150, latency * 2.2);
+                  Math.max(100, latency * 2);
 
-              // Применяем коррекцию только если мы не в "мертвой зоне" прыжка.
               if (!justJumped) {
                 const deltaY = Math.abs(humanPlayer.y - playerData.y);
 
-                if (deltaY > 2) {
-                  // Небольшой порог для избежания "дрожания" на месте
-                  // Вместо прямого изменения позиции 'y', мы применяем "пружинную" силу к скорости 'velocityY'.
-                  // Это заставляет игрока плавно двигаться к серверной позиции, а не "телепортироваться".
-                  const correctionForce = (playerData.y - humanPlayer.y) * 0.03; // Коэффициент пружины
-                  humanPlayer.velocityY += correctionForce;
+                // Корректируем только при существенном расхождении.
+                if (deltaY > 5) {
+                  // Плавно подтягиваем позицию к серверной.
+                  humanPlayer.y = lerp(humanPlayer.y, playerData.y, 0.25);
 
-                  // Мы также очень мягко корректируем velocity от сервера, чтобы соответствовать траектории.
+                  // И также плавно корректируем скорость для соответствия траектории.
                   if (typeof playerData.velocityY === "number") {
-                    humanPlayer.velocityY = lerp(
-                      humanPlayer.velocityY,
-                      playerData.velocityY,
-                      0.05 // Очень маленький фактор для плавности
+                    const deltaV = Math.abs(
+                      humanPlayer.velocityY - playerData.velocityY
                     );
+                    if (deltaV > 1) {
+                      // Порог для коррекции скорости.
+                      humanPlayer.velocityY = lerp(
+                        humanPlayer.velocityY,
+                        playerData.velocityY,
+                        0.25
+                      );
+                    }
                   }
                 }
               }
